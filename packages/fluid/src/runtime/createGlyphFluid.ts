@@ -165,7 +165,10 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
 
   // ---- state ----
   let pipeline: GlyphFluidPipeline | null = null;
-  let cols = 0, rows = 0, cw = 10, ch = 16, r0 = 0;
+  // r0: the document row of the grid's top row for the frame being composed. shownR0: the
+  // same for the frame on screen. The worker draws one frame late, so across a row scroll
+  // they differ, and the layer must sit where the DRAWN frame was composed.
+  let cols = 0, rows = 0, cw = 10, ch = 16, r0 = 0, shownR0 = 0;
   let advance = 0.6;
   let originX = 0, originY = 0;
   const targets: LiveTarget[] = [];
@@ -228,7 +231,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     const nr = glue === "document" ? Math.ceil(vh / nch) + 2 * MARGIN + 1 : Math.max(4, Math.ceil(vh / nch));
     if (nc !== cols || nr > rows || (glue === "host" && nr !== rows) || Math.abs(ncw - cw) > 0.01) {
       cols = nc; rows = nr; cw = ncw; ch = nch;
-      r0 = glue === "document" ? Math.floor(window.scrollY / ch) - MARGIN : 0;
+      r0 = shownR0 = glue === "document" ? Math.floor(window.scrollY / ch) - MARGIN : 0;
       pipeline ??= makePipeline();
       pipeline.init(coreInit());
       ops = [];
@@ -252,7 +255,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
   }
 
   function place(): void {
-    const y = glue === "document" ? r0 * ch - window.scrollY : 0;
+    const y = glue === "document" ? shownR0 * ch - window.scrollY : 0;
     stack.style.transform = `translate3d(0, ${y.toFixed(2)}px, 0)`;
   }
 
@@ -313,6 +316,10 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
       style.textContent = glyphFluidPaletteCss(paletteName, frame.palette, face);
     }
     pre.textContent = frame.text;
+    if (frame.rowOrigin !== undefined && frame.rowOrigin !== shownR0) {
+      shownR0 = frame.rowOrigin;
+      place();
+    }
     lit = frame.drawn;
     frames++;
     if (frame.probeTag === undefined || !frame.probes) return;
@@ -379,7 +386,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     }
     writeGlyphFluidZones(frame, zones.flatMap((z) => (z.box ? [z.box] : [])), r0);
     const params: GlyphFluidStepParams = { t, breath, dt, hold: smooth((t - lastEvent - hold.delay) / hold.ramp) };
-    const input = { ops, params, targets: frame.packed, shimmer, ...collectProbes(dt) };
+    const input = { ops, params, targets: frame.packed, shimmer, rowOrigin: r0, ...collectProbes(dt) };
     ops = [];
     if (reduced) {
       if (!settleDirty) return;

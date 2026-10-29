@@ -65,7 +65,9 @@ export class GlyphFluidMainPipeline implements GlyphFluidPipeline {
       for (let k = 0; k < sim.N; k++) if (sim.mask[k]) worst = Math.max(worst, Math.abs(sim.T[k]! - sim.ink[k]!));
       if (worst < tolerance) break;
     }
-    return core.render(p.t, 0, input.probes, input.probeTag);
+    const frame = core.render(p.t, 0, input.probes, input.probeTag);
+    if (input.rowOrigin !== undefined) frame.rowOrigin = input.rowOrigin;
+    return frame;
   }
   lastMs(): number {
     return this.ms;

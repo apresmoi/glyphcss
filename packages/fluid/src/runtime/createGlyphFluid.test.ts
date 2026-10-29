@@ -210,3 +210,63 @@ describe("letter probes", () => {
     }
   });
 });
+
+describe("document glue", () => {
+  it("places the layer at the row origin of the frame it drew, not the newest one (worker, one frame late)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("Worker", class {});
+    const { handleGlyphFluidWorkerMessage } = await import("./protocol");
+    let sy = 0;
+    Object.defineProperty(window, "scrollY", { configurable: true, get: () => sy });
+    // the sim's row origin per step, from the scroll ops the runtime actually posted
+    const state = { core: null, gen: -1 };
+    let cum = 0, delivered = -1;
+    const cumAt = new Map<number, number>();
+    const w = {
+      onmessage: null as ((e: MessageEvent) => void) | null,
+      onerror: null,
+      postMessage(msg: { kind: string; id: number; input: { ops: Array<[string, number]> } }, transfer: Transferable[] = []) {
+        if (msg.kind === "step") {
+          for (const op of msg.input.ops) if (op[0] === "scroll") cum += op[1];
+          cumAt.set(msg.id, cum);
+        }
+        const got = structuredClone(msg, { transfer }) as never;
+        queueMicrotask(() => handleGlyphFluidWorkerMessage(state, got, (reply, tr) => {
+          const back = structuredClone(reply, { transfer: tr });
+          queueMicrotask(() => {
+            delivered = back.id;
+            w.onmessage?.({ data: back } as MessageEvent);
+          });
+        }));
+      },
+      terminate() {},
+    };
+    try {
+      const { fluid, host } = await make({ glue: "document", worker: () => w as unknown as Worker });
+      const pre = host.querySelector("pre")!;
+      const ch = parseFloat(pre.style.lineHeight);
+      const r00 = -4; // floor(0 / ch) - MARGIN
+      const layerY = () => Number(/translate3d\(0,? ?([-\d.]+)px/.exec(pre.parentElement!.style.transform)![1]);
+      let shown = -1, checked = 0;
+      for (let f = 0; f < 12; f++) {
+        sy += 2.5 * ch; // crosses a row boundary every frame
+        window.dispatchEvent(new Event("scroll"));
+        if (shown >= 0) expect(layerY()).toBeCloseTo((r00 + cumAt.get(shown)!) * ch - sy, 1);
+        const pending = delivered, before = fluid.stats().frames;
+        fluid.step(1 / 30);
+        if (fluid.stats().frames > before) {
+          shown = pending;
+          expect(layerY()).toBeCloseTo((r00 + cumAt.get(shown)!) * ch - sy, 1);
+          checked++;
+        }
+        for (let i = 0; i < 4; i++) await Promise.resolve();
+      }
+      expect(fluid.stats().pipeline).toBe("worker");
+      expect(cum).toBeGreaterThan(20);
+      expect(checked).toBeGreaterThanOrEqual(8);
+      fluid.destroy();
+    } finally {
+      delete (window as { scrollY?: number }).scrollY;
+    }
+  });
+});

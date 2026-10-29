@@ -47,6 +47,8 @@ export interface GlyphFluidFrame {
   probes?: Float64Array;
   /** The step input's `probeTag`, echoed so the drawer pairs results with its letters. */
   probeTag?: number;
+  /** The step input's `rowOrigin`, echoed so the drawer places the frame where it was composed. */
+  rowOrigin?: number;
 }
 
 const BRAILLE: string[] = Array.from({ length: 256 }, (_, m) => (m ? String.fromCharCode(0x2800 + m) : " "));

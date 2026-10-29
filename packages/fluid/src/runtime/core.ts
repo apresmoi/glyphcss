@@ -35,6 +35,8 @@ export interface GlyphFluidStepInput {
   probes?: Float64Array;
   /** Echoed on the frame with the probe results. */
   probeTag?: number;
+  /** The document row of the grid's top row when the targets were composed; echoed on the frame. */
+  rowOrigin?: number;
 }
 
 export class GlyphFluidCore {
@@ -87,6 +89,8 @@ export class GlyphFluidCore {
 
   step(input: GlyphFluidStepInput): GlyphFluidFrame {
     this.advance(input);
-    return this.render(input.params.t, input.shimmer, input.probes, input.probeTag);
+    const frame = this.render(input.params.t, input.shimmer, input.probes, input.probeTag);
+    if (input.rowOrigin !== undefined) frame.rowOrigin = input.rowOrigin;
+    return frame;
   }
 }
