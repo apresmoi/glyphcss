@@ -366,10 +366,8 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     scrollRows();
     place();
     stir(dt);
-    const frame = createGlyphFluidTargetFrame(cols, rows, pipeline.targetBuffer());
-    frame.T.fill(0);
-    frame.TF.fill(0);
-    frame.TA.fill(0);
+    // Visibility and change detection first: a settled reduced-motion frame stops here,
+    // before any target rasterises (a mesh target is two compileScene passes).
     for (const lt of targets) {
       const b = lt.impl.box();
       if (!b) continue;
@@ -380,7 +378,17 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
         event(b.i0 + b.w / 2, b.j0 + b.h / 2, want ? lt.impl.strengthOn : lt.impl.strengthOff, lt.impl.hold ?? { delay: 0.4, ramp: 1.0 });
       }
       if (lt.impl.changed?.()) settleDirty = true;
-      if (!lt.on) continue;
+    }
+    if (reduced && !settleDirty) {
+      ops = [];
+      return;
+    }
+    const frame = createGlyphFluidTargetFrame(cols, rows, pipeline.targetBuffer());
+    frame.T.fill(0);
+    frame.TF.fill(0);
+    frame.TA.fill(0);
+    for (const lt of targets) {
+      if (!lt.on || !lt.impl.box()) continue;
       lt.impl.update(dt);
       lt.impl.write(frame, r0, swell);
     }
@@ -389,7 +397,6 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     const input = { ops, params, targets: frame.packed, shimmer, rowOrigin: r0, ...collectProbes(dt) };
     ops = [];
     if (reduced) {
-      if (!settleDirty) return;
       settleDirty = false;
       write((pipeline as GlyphFluidMainPipeline).settle(input, 120));
       return;

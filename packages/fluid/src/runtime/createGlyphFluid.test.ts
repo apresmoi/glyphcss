@@ -120,6 +120,45 @@ describe("createGlyphFluid", () => {
     fluid.destroy();
   });
 
+  it("under prefers-reduced-motion a settled idle frame rasterises no target", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), addEventListener() {}, removeEventListener() {} }));
+    const { fluid, host } = await make({ worker: "auto" });
+    const slot = document.createElement("div");
+    slot.getBoundingClientRect = () => ({ left: 100, top: 40, right: 260, bottom: 200, width: 160, height: 160, x: 100, y: 40, toJSON() {} }) as DOMRect;
+    host.append(slot);
+    const camera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0 });
+    const spec = GlyphFluidTargets.mesh(slot, {
+      polygons: () => [{ vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#f0e0d0" }], camera, extent: 3,
+    });
+    let updates = 0;
+    const target = fluid.addTarget({
+      ...spec,
+      create: (ctx) => {
+        const impl = spec.create(ctx);
+        const update = impl.update.bind(impl);
+        impl.update = (dt) => {
+          updates++;
+          update(dt);
+        };
+        return impl;
+      },
+    });
+    fluid.step(1 / 60);
+    const settled = updates;
+    expect(settled).toBeGreaterThan(0);
+    for (let i = 0; i < 10; i++) fluid.step(1 / 60);
+    expect(updates).toBe(settled);
+    // A real change still reaches the target.
+    target.melt();
+    fluid.step(1 / 60);
+    target.condense();
+    fluid.step(1 / 60);
+    fluid.step(1 / 60);
+    expect(updates).toBeGreaterThan(settled);
+    fluid.destroy();
+  });
+
   it("condense/melt toggle a target and each transition kicks the fluid", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const { fluid, host } = await make();
