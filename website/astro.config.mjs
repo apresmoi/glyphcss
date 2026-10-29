@@ -50,8 +50,9 @@ export default defineConfig({
         },
         { find: /^@glyphcss\/fluid\/reader$/, replacement: repoPath('../packages/fluid/src/reader/index.ts') },
         // The worker entry, for `@glyphcss/fluid/worker?worker` (the package's default
-        // `new URL("./worker.js")` only exists next to its built dist).
-        { find: /^@glyphcss\/fluid\/worker$/, replacement: repoPath('../packages/fluid/src/runtime/worker.ts') },
+        // `new URL("./worker.js")` only exists next to its built dist). The lookahead leaves
+        // the `?worker` query on the specifier for Vite's worker plugin.
+        { find: /^@glyphcss\/fluid\/worker(?=\?|$)/, replacement: repoPath('../packages/fluid/src/runtime/worker.ts') },
         {
           find: /^@glyphcss\/fluid$/,
           replacement: repoPath('../packages/fluid/src/index.ts'),
