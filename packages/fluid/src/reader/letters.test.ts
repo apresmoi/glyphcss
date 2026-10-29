@@ -25,7 +25,7 @@ describe("glyphFluidReaderGlyph (render.js's decode)", () => {
 });
 
 describe("glyphFluidReaderLetterColor", () => {
-  it("brightens with ink (0.55 + ink) and pulls the ORP letter to molty's accent orange", () => {
+  it("brightens with ink (0.55 + ink) and pulls the ORP letter to the reference's accent orange", () => {
     expect(glyphFluidReaderLetterColor([1, 1, 1], 0, 0, false)).toBe("#888888"); // 0.55 · 255 = 140 → 136
     expect(glyphFluidReaderLetterColor([1, 1, 1], 0.6, 0, false)).toBe("#f8f8f8");
     // ORP: at least 85 % of the way to (255, 140, 60)

@@ -1,4 +1,4 @@
-// @glyphcss/fluid/reader — molty's speed reader in two layers:
+// @glyphcss/fluid/reader — the reference's speed reader in two layers:
 //   rules (./rules): tokenizer, ORP, word delay and the word clock; pure, no fluid imports
 //   rendering: `createGlyphFluidReader` draws the clock's words with the package's fluid
 export { glyphReaderOrp, tokenizeGlyphReaderText, glyphReaderWordDelay, createGlyphReaderClock } from "./rules/index";

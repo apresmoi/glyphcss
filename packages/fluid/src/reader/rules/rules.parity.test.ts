@@ -1,8 +1,8 @@
-// The reader rules must match molty's vendored reader.js exactly (the firmware applies the
+// The reader rules must match the reference's vendored reader.js exactly (the firmware applies the
 // same rules in C). A corpus of hand-picked edge cases plus seeded random words; each
 // planted-bug case proves the comparison would catch a one-character slip.
 import { describe, expect, it } from "vitest";
-import * as ref from "../../../reference/molty-fluid/reader.js";
+import * as ref from "../../../reference/fluid/reader.js";
 import { glyphReaderOrp, glyphReaderWordDelay, tokenizeGlyphReaderText, type GlyphReaderToken } from "./words";
 
 function rng(seed: number) {
@@ -62,7 +62,7 @@ function mismatches(impl: {
 
 const port = { orp: glyphReaderOrp, tokenize: tokenizeGlyphReaderText, delay: glyphReaderWordDelay };
 
-describe("reader rules parity with molty's reader.js", () => {
+describe("reader rules parity with the reference's reader.js", () => {
   it("ORP, tokenizer and word delay agree on every corpus word and text", () => {
     expect(mismatches(port)).toBe(0);
   });

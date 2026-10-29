@@ -1,8 +1,8 @@
 // A speed reader drawn by the fluid: the word clock (rules layer) drives one word target
-// on a small fluid of its own, paced like molty's website reader (speedReader.ts): the
+// on a small fluid of its own, paced like the website reader: the
 // ink gathers during the lead-in, each word condenses with its ORP letter accented, every
 // word change sends a soft ring out from the centre, and after the last word the letters
-// melt back into the field. The look is molty's: real letters condensing out of a pooled
+// melt back into the field. The look is the reference's: real letters condensing out of a pooled
 // band ("plain", default) or the fluid taking the letter shapes ("glyph").
 import { createGlyphFluid, type GlyphFluid, type GlyphFluidOptions } from "../runtime/createGlyphFluid";
 import { parseHexColor } from "../targets/types";
@@ -22,11 +22,11 @@ export interface GlyphFluidReaderOptions extends Omit<GlyphFluidOptions, "glue">
   /** Start reading as soon as the fluid is ready. Default true. */
   autoplay?: boolean;
   /**
-   * `"plain"` (default, molty's website look): the fluid pools into a band and real DOM
+   * `"plain"` (default, the website look): the fluid pools into a band and real DOM
    * letters condense out of it. `"glyph"`: the fluid itself takes the letter shapes.
    */
   look?: GlyphFluidReaderLook;
-  /** `look: "plain"`: the letters' CSS font-family (drawn bold). Default molty's `ui-monospace, Menlo, Consolas, monospace`. */
+  /** `look: "plain"`: the letters' CSS font-family (drawn bold). Default the reference's `ui-monospace, Menlo, Consolas, monospace`. */
   font?: string;
   /**
    * The showing word is kept in a visually hidden element for assistive tech. `"off"`
@@ -34,7 +34,7 @@ export interface GlyphFluidReaderOptions extends Omit<GlyphFluidOptions, "glue">
    * screen reader); `"polite"` announces each word.
    */
   ariaLive?: "off" | "polite";
-  /** Letter colour, `#rrggbb`. Default `#f2f5ff` (molty's). The ORP accent is the fluid's accent orange. */
+  /** Letter colour, `#rrggbb`. Default `#f2f5ff` (the reference's). The ORP accent is the fluid's accent orange. */
   color?: string;
   /**
    * Strength of the ring each word after the first sends out. Default 0.63; 0 for none.
@@ -55,7 +55,7 @@ export interface GlyphFluidReader {
   destroy(): void;
 }
 
-/** molty's text relax rates: words snap in fast and drain slower. */
+/** the reference's text relax rates: words snap in fast and drain slower. */
 const TEXT_TUNING = { relaxUp: 7, relaxDown: 2.4 };
 
 export function createGlyphFluidReader(host: HTMLElement, options: GlyphFluidReaderOptions = {}): GlyphFluidReader {
@@ -86,7 +86,7 @@ export function createGlyphFluidReader(host: HTMLElement, options: GlyphFluidRea
     target.melt();
     said.textContent = "";
   };
-  // molty's lead-in: the first word is the target from the start of a reading, so its ink
+  // the reference's lead-in: the first word is the target from the start of a reading, so its ink
   // gathers (and its plain letters scramble in) before the clock shows it
   const begin = (tokens: readonly GlyphReaderToken[]) => {
     target.setSentence(tokens);

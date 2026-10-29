@@ -1,15 +1,15 @@
-// The cell decision must light the same dots in the same colours as molty's canvas
+// The cell decision must light the same dots in the same colours as the reference's canvas
 // renderer. The REAL GlyphRenderer.draw runs on a recording 2D context; every dot it fills
 // is decoded back to (cell, dot, colour) and compared with computeGlyphFluidCells.
 import { describe, expect, it } from "vitest";
-import { GlyphRenderer } from "../../reference/molty-fluid/render.js";
+import { GlyphRenderer } from "../../reference/fluid/render.js";
 import { GlyphFluidSim } from "../sim/sim";
 import { applyGlyphFluidOp, configureGlyphFluidRect, stepGlyphFluidSim } from "../sim/ops";
 import { computeGlyphFluidCells, createGlyphFluidCells, GLYPH_FLUID_DOTS_TO_BRAILLE } from "./cells";
-import { FluidSim } from "../../reference/molty-fluid/sim.js";
+import { FluidSim } from "../../reference/fluid/sim.js";
 import { GLYPH_FLUID_PROBE_IN, GLYPH_FLUID_PROBE_OUT, sampleGlyphFluidProbes } from "./probes";
 
-/** molty's overlay letter: a box in its 412 px panel. */
+/** the reference's overlay letter: a box in its 412 px panel. */
 interface Letter { ch: string; x: number; y: number; w: number; h: number; acc: boolean; fs: number }
 
 const PANEL = 412;
@@ -37,7 +37,7 @@ function reference(sim: GlyphFluidSim, time: number, shimmer: number, letters: L
   };
   const r = new GlyphRenderer({ getContext: () => rec });
   r.scale = 1;
-  // render.js samples under each letter with molty's own sampleAt
+  // render.js samples under each letter with the reference's own sampleAt
   (sim as unknown as { sampleAt: unknown }).sampleAt = FluidSim.prototype.sampleAt;
   r.draw(sim, { ramp: " .:-=+*#%@", palette: "pastel", braille: "all", edges: 1, time, shimmer, letters, melt });
   return { mask, rgb };
@@ -102,7 +102,7 @@ function scene() {
   return { sim, t, totals };
 }
 
-describe("computeGlyphFluidCells parity with molty's GlyphRenderer", () => {
+describe("computeGlyphFluidCells parity with the reference's GlyphRenderer", () => {
   it("lights the same dots in the same colours on every frame", () => {
     const { totals } = scene();
     expect(totals.lit).toBeGreaterThan(20_000);
@@ -146,7 +146,7 @@ describe("computeGlyphFluidCells parity with molty's GlyphRenderer", () => {
 
   it("blanks the cells under condensed letters and drops their contour ring, as render.js's letters overlay does", () => {
     const { sim, t } = scene();
-    // molty's plain letter geometry (30 px, 0.6 em slots) tiled in rows over the whole panel:
+    // the reference's plain letter geometry (30 px, 0.6 em slots) tiled in rows over the whole panel:
     // letters on the blob show, letters off it don't, and the ones at its rim sit next to
     // contour cells, where the ring suppression matters
     const fs = 30, adv = fs * 0.6, lh = fs * 1.05;

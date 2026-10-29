@@ -1,5 +1,5 @@
-// TypeScript port of molty's fluid (`reference/molty-fluid/sim.js`, molty-site f2a9ef9).
-// The same step runs as C on molty's firmware, so this file is a transliteration, not a
+// TypeScript transliteration of the reference fluid (`reference/fluid/sim.js`).
+// The same step runs as C on the reference's firmware, so this file is a transliteration, not a
 // rewrite: same fields, same loop order, same arithmetic order. `sim.parity.test.ts`
 // steps both on seeded inputs and requires every Float32 field to match bit for bit.
 //
@@ -51,7 +51,7 @@ export interface GlyphFluidTuning {
   bgColor: [number, number, number];
 }
 
-/** molty's `SIM_TUNING`, verbatim. */
+/** the reference's `SIM_TUNING`, verbatim. */
 export const GLYPH_FLUID_SIM_TUNING: Readonly<GlyphFluidTuning> = Object.freeze({
   c2: 0.11, damp: 0.975, leak: 0.985,
   attract: 70, drag: 2.6, vmax: 30,
@@ -64,7 +64,7 @@ export const GLYPH_FLUID_SIM_TUNING: Readonly<GlyphFluidTuning> = Object.freeze(
 });
 
 /**
- * The fluid state and its fixed step. Constructed as molty's round disc (the device
+ * The fluid state and its fixed step. Constructed as a round disc (the surface
  * screen); {@link configureGlyphFluidRect} reshapes it into the full-rectangle page fluid.
  */
 export class GlyphFluidSim {

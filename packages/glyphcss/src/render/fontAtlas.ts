@@ -11,7 +11,7 @@
  * This module owns exactly three things:
  *   1. The shipped glyph sets + PUA mapping scheme (this file): the universal
  *      atlas, the ASCII variant ({@link GLYPH_FONT_ATLAS_ASCII}) and the
- *      braille-dots variant ({@link GLYPH_FONT_ATLAS_BRAILLE_DOTS}: molty's
+ *      braille-dots variant ({@link GLYPH_FONT_ATLAS_BRAILLE_DOTS}: canvas-style
  *      dot geometry on a 1.6-aspect cell, opt-in, used by `@glyphcss/fluid`).
  *      Each has its own family, metadata JSON and lazily loaded WOFF2 chunk.
  *   2. The checked-in font artifact (`../../assets/glyph-atlas/atlas.json`,
@@ -191,11 +191,11 @@ export const GLYPH_FONT_ATLAS_ASCII: GlyphFontAtlas = Object.freeze({ ...asciiAt
 
 /**
  * The checked-in BRAILLE-DOTS atlas: the 256 braille patterns (glyph index =
- * dot mask, U+2800 blank included) drawn as rectangles at molty's canvas dot
+ * dot mask, U+2800 blank included) drawn as rectangles at canvas-style dot
  * positions and sizes, in a font whose em square IS a 1 x 1.6 cell (advance
  * 1000, unitsPerEm 1600, ascent 1600, descent 0). With `font-size` and
  * `line-height` both set to the cell height, the line box is the cell and
- * every dot lands where molty's canvas renderer draws it.
+ * every dot lands where a canvas renderer would draw it.
  *
  * Why it exists: the universal atlas copies braille from Menlo/DejaVu, whose
  * dots span a TEXT line (about a 1.93 cell aspect). On a 1.6 cell those rows

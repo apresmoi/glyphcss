@@ -30,7 +30,7 @@ export interface GlyphFluidOptions {
   /** Default `"atlas"`. */
   encoding?: Exclude<GlyphFluidEncoding, "plain">;
   /**
-   * The dot face (`GlyphFluidFace`). `"dots"` (default) draws molty's dot rects on a
+   * The dot face (`GlyphFluidFace`). `"dots"` (default) draws the reference's dot rects on a
    * 1.6 cell; exact with the default `grid.cellAspect`. `"universal"` uses core's
    * universal atlas.
    */
@@ -49,7 +49,7 @@ export interface GlyphFluidOptions {
   clock?: "auto" | "manual";
   /** The dim field: colour (`#rrggbb`, default `#6f8f82`) and floor level (default 0.18). */
   field?: { color?: string; level?: number };
-  /** Sim tunables over molty's defaults. */
+  /** Sim tunables over the reference's defaults. */
   tuning?: Partial<GlyphFluidTuning>;
   /**
    * `"host"` (default): the grid fills the host box. `"document"`: the host is a fixed,
@@ -63,7 +63,7 @@ export interface GlyphFluidOptions {
   /** Dither shimmer amplitude. Default 0.12. */
   shimmer?: number;
   /**
-   * `"rect"` (default) fills the host. `"circle"`: molty's round device screen, the disc
+   * `"rect"` (default) fills the host. `"circle"`: a circular surface, the disc
    * inscribed in the grid (a circle in a square host); cells outside it stay blank.
    */
   shape?: "rect" | "circle";

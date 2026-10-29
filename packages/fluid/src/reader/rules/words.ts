@@ -1,4 +1,4 @@
-// molty's speed-reader rules (`reference/molty-fluid/reader.js`), shared with the device
+// the reference's speed-reader rules (`reference/fluid/reader.js`), shared with the device
 // firmware (`mole_fluid.c`): same heuristic, no dictionary. `rules.parity.test.ts` holds
 // this file to the reference on a corpus; change both (and the firmware) or neither.
 //   ORP:   strip leading/trailing non-alnum → core; bucket core length

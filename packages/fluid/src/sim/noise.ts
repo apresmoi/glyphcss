@@ -1,4 +1,4 @@
-// Value noise from molty's field synth (`reference/molty-fluid/synth.js`). The sim's
+// Value noise from the reference's field synth (`reference/fluid/synth.js`). The sim's
 // background floor and curl-noise eddies read it once per cell per step, so its exact
 // float sequence is part of the sim's parity contract: keep the arithmetic order.
 

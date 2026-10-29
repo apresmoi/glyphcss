@@ -137,7 +137,7 @@ describe("GlyphFluidReaderTarget", () => {
     const { f } = written("I");
     let j0 = 99, j1 = -1;
     for (let j = 0; j < 32; j++) for (let i = 0; i < 52; i++) if (f.TA[j * 52 + i]! > 0) ((j0 = Math.min(j0, j)), (j1 = Math.max(j1, j)));
-    // molty's baseline sits 0.04 em low, stretched ×1.9: about one row under centre
+    // the reference's baseline sits 0.04 em low, stretched ×1.9: about one row under centre
     expect(Math.abs((j0 + j1 + 1) / 2 - 16)).toBeLessThanOrEqual(1);
     expect(j1 - j0 + 1).toBeGreaterThan(10); // 150 px × 0.7 × 1.9 ≈ 200 px ≈ 15 rows
   });
@@ -154,7 +154,7 @@ describe("GlyphFluidReaderTarget", () => {
 
   it("shrinks a word set in a wide face to fit the host, pivot still centred", () => {
     for (const w of ["living", "extraordinary", "a"]) {
-      const { f } = written(w, 0.95); // far wider than the 0.62 em molty's formula assumes
+      const { f } = written(w, 0.95); // far wider than the 0.62 em the reference's formula assumes
       let i0 = 99, i1 = -1, accSum = 0, accX = 0;
       for (let j = 0; j < 32; j++)
         for (let i = 0; i < 52; i++) {
@@ -201,7 +201,7 @@ describe("createGlyphFluidReader", () => {
       for (let i = 0; i < n; i++) reader.fluid.step(1 / 60);
       return writes.mock.calls.length - before;
     };
-    expect(drawnFrames(3)).toBe(3); // lead-in: the first word is already gathering (molty's)
+    expect(drawnFrames(3)).toBe(3); // lead-in: the first word is already gathering (the reference's)
     const impulse = vi.spyOn(reader.fluid, "impulse");
     const words: string[] = [];
     reader.clock.subscribe((e) => e.type === "word" && words.push(e.token.word));
@@ -280,7 +280,7 @@ describe("plain look", () => {
       expect(Math.abs(p[orp * 7 + 1]! * ch - 208), word).toBeLessThan(ch); // centre row
       const f = createGlyphFluidTargetFrame(52, 33);
       t.write(f, 0);
-      // every probe's own cell is pooled at molty's 0.62; the ORP one is accented
+      // every probe's own cell is pooled at the reference's 0.62; the ORP one is accented
       for (let l = 0; l < n; l++) {
         const k = Math.floor(p[l * 7 + 1]!) * 52 + Math.floor(p[l * 7]!);
         expect(f.T[k], `${word}[${l}]`).toBeCloseTo(0.62, 5);
@@ -300,7 +300,7 @@ describe("plain look", () => {
     }
   });
 
-  it("fits a very long word inside the host (molty's 18 px floor would overrun it)", () => {
+  it("fits a very long word inside the host (the reference's 18 px floor would overrun it)", () => {
     for (const [w, h] of [[416, 416], [300, 120]] as const) {
       const word = "Donaudampfschifffahrtsgesellschaft";
       const { t, cw } = plainTarget(word, w, h);
@@ -427,7 +427,7 @@ describe("plain look: review regressions", () => {
   it("decodes letters when a long sentence makes the band thinner than two rows", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const host = sizedHost(416, 416);
-    // the longest word sets the sentence's type size: 18 molty px, a band of ~1.5 rows
+    // the longest word sets the sentence's type size: 18 reference px, a band of ~1.5 rows
     const reader = createGlyphFluidReader(host, { text: "one incomprehensibilities", scheduler: fakeScheduler(), clock: "manual", worker: false });
     await reader.ready;
     for (let i = 0; i < 120; i++) reader.fluid.step(1 / 60);

@@ -1,5 +1,5 @@
 // The word clock: which word is showing and when the next one is due. Renderer-agnostic;
-// it only emits events. Paced like molty's speed reader (website speedReader.ts): a
+// it only emits events. Paced like the reference's speed reader (website speedReader.ts): a
 // lead-in before the first word so the ink can gather, each word for its
 // `glyphReaderWordDelay`, and after the last word an optional rest before reading again.
 import { glyphReaderWordDelay, tokenizeGlyphReaderText, type GlyphReaderToken } from "./words";
@@ -42,7 +42,7 @@ export interface GlyphReaderClock {
   pause(): void;
   /** Show word `index` now (clamped); while playing it stays for its full delay. */
   seek(index: number): void;
-  /** Takes effect from the next word, as molty's reader does. */
+  /** Takes effect from the next word, as the reference's reader does. */
   setWpm(wpm: number): void;
   /** Replace the text and start over from the lead-in (playing state is kept). */
   setText(text: string): void;

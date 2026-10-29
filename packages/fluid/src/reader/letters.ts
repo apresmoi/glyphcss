@@ -1,4 +1,4 @@
-// The reader's plain look as DOM: molty's `letters` overlay (render.js), real letters over
+// The reader's plain look as DOM: the reference's `letters` overlay (render.js), real letters over
 // the fluid <pre>. Each letter is one positioned <span>. Per frame a letter gets at most
 // ONE inline-style assignment (transform, colour, opacity as one cssText), and only when
 // that string changed; its textContent is written only when its displayed character
@@ -6,9 +6,9 @@
 // <style> written at creation and a font-size written per sentence, never per frame.
 import { GLYPH_FLUID_PROBE_OUT } from "../cells/probes";
 
-/** molty's 'Fade' ramp: what a letter shows while it is still condensing (or melting). */
+/** the reference's 'Fade' ramp: what a letter shows while it is still condensing (or melting). */
 export const GLYPH_FLUID_READER_RAMP = " .:-=+*#%@";
-/** molty's letter face: bold, its UI monospace. */
+/** the reference's letter face: bold, its UI monospace. */
 export const GLYPH_FLUID_READER_FONT = "ui-monospace, Menlo, Consolas, monospace";
 /** Ink a letter needs before it shows at all, and before it decodes (render.js). */
 export const GLYPH_FLUID_READER_SHOW_INK = 0.14;
@@ -30,7 +30,7 @@ export interface GlyphFluidReaderLetterSet {
   letters: readonly GlyphFluidReaderLetter[];
   /** Seconds since the text was left (0 while reading). */
   melt: number;
-  /** px the wave height moves a letter per unit (molty: 7 panel px, clamped to ±3). */
+  /** px the wave height moves a letter per unit (reference: 7 panel px, clamped to ±3). */
   wave: number;
 }
 
@@ -41,7 +41,7 @@ export function glyphFluidReaderGlyph(ch: string, ink: number, melt: number, ram
   return ramp[Math.max(1, Math.round(Math.max(0, ink - melt) * rmax))]!;
 }
 
-/** A letter's colour: brightness 0.55 + ink over `rgb` (0..1), the ORP letter mixed toward molty's accent. */
+/** A letter's colour: brightness 0.55 + ink over `rgb` (0..1), the ORP letter mixed toward the reference's accent. */
 export function glyphFluidReaderLetterColor(rgb: readonly number[], ink: number, acc: number, orp: boolean): string {
   const b = Math.min(1, 0.55 + ink);
   let r = 255 * rgb[0]! * b, g = 255 * rgb[1]! * b, bl = 255 * rgb[2]! * b;

@@ -67,7 +67,7 @@ export function glyphFluidImageCells(data: ArrayLike<number>, pw: number, ph: nu
   return out;
 }
 
-/** Ink for a covered, shaded cell: coverage × a floor-lifted luminance curve (molty's creature target). */
+/** Ink for a covered, shaded cell: coverage × a floor-lifted luminance curve (the reference's creature target). */
 export const glyphFluidShadeInk = (cov: number, lum: number) => cov * (0.06 + 0.94 * Math.pow(lum, 1.3));
 
 /**

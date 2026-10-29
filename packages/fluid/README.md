@@ -2,7 +2,7 @@
 
 [Workbench](https://glyphcss.com/fluid/) · [Docs](https://glyphcss.com/fluid/overview/)
 
-A living braille fluid as DOM text: headings, images and meshes condense out of it and melt back, pointer moves stir it, and a speed reader shows one word at a time out of it. It is molty.uno's landing-page fluid as a glyphcss surface: one `<pre>`, one `textContent` write per frame, per-cell colour through glyphcss's colour-font atlas, the simulation in a Web Worker.
+A living braille fluid as DOM text: headings, images and meshes condense out of it and melt back, pointer moves stir it, and a speed reader shows one word at a time out of it. It is a glyphcss surface: one `<pre>`, one `textContent` write per frame, per-cell colour through glyphcss's colour-font atlas, the simulation in a Web Worker.
 
 ## Real output
 
@@ -70,15 +70,15 @@ Keep the target element in the page with `color: transparent`: its box drives la
 
 | Layer | Use alone |
 |---|---|
-| `GlyphFluidSim` | molty's fluid step, bit-identical to molty's `sim.js` (the device firmware runs it as C). No DOM. |
-| `computeGlyphFluidCells` | the per-cell braille decision of molty's renderer: 8-dot mask + 5-bit colour. |
+| `GlyphFluidSim` | The fluid step, a bit-identical transliteration of the reference implementation's `sim.js`. No DOM. |
+| `computeGlyphFluidCells` | the per-cell braille decision of the reference renderer: 8-dot mask + 5-bit colour. |
 | `GlyphFluidEncoder` | cells → glyphcss atlas text and a pooled palette. |
 | `createGlyphFluid` | targets, zones, pointer, worker, fps governor, one `<pre>`. |
 | `@glyphcss/fluid/reader` | speed-reader rules and word clock (no fluid dependency) and `createGlyphFluidReader`. |
 
 ```
 GlyphFluidSim  →  computeGlyphFluidCells  →  GlyphFluidEncoder  →  createGlyphFluid
-(molty's sim,     (braille mask + colour     (glyphcss atlas text   (targets, worker,
+(the fluid sim,   (braille mask + colour     (glyphcss atlas text   (targets, worker,
  bit-identical)    per cell)                  + pooled palette)      one <pre>)
 ```
 
@@ -95,9 +95,9 @@ Every target takes `delay` (seconds before it first condenses) and `visibility: 
 | Option | Default | |
 |---|---|---|
 | `glue` | `"host"` | `"host"` fills the host box; `"document"` glues to the page |
-| `shape` | `"rect"` | `"circle"`: molty's round screen, the disc inscribed in the host |
+| `shape` | `"rect"` | `"circle"`: a circular surface, the disc inscribed in the host |
 | `encoding` | `"atlas"` | per-cell colour; `"mono"` is one colour |
-| `face` | `"dots"` | `"dots"` draws molty's dot rectangles from glyphcss's braille-dots atlas, exactly where molty's canvas draws them (at `cellAspect` 1.6); `"universal"` uses glyphcss's universal atlas, whose braille spans a text line, so rows bunch across cell boundaries |
+| `face` | `"dots"` | `"dots"` draws dot rectangles from glyphcss's braille-dots atlas, exactly where a canvas renderer would (at `cellAspect` 1.6); `"universal"` uses glyphcss's universal atlas, whose braille spans a text line, so rows bunch across cell boundaries |
 | `fps` | `60` | drops to 30 for the session when frames keep missing (`fpsFallback: false` to keep 60) |
 | `worker` | `"auto"` | `false` for the main thread, or a function returning your own Worker running `@glyphcss/fluid/worker` |
 | `clock` | `"auto"` | `"manual"` draws only on `fluid.step(dt)` |
@@ -105,7 +105,7 @@ Every target takes `delay` (seconds before it first condenses) and `visibility: 
 | `pointer` | `"host"` | stir from `"host"`, `"window"` or `"none"` |
 | `field` | `{ color: "#6f8f82", level: 0.18 }` | the dim background fluid |
 | `grid` | `{ cellAspect: 1.6, targetCols: 144, minCellPx: 5.4, maxCellPx: 10, maxCols: 176 }` | cell lattice |
-| `tuning` | molty's | sim tunables (`GLYPH_FLUID_SIM_TUNING`) |
+| `tuning` | the defaults | sim tunables (`GLYPH_FLUID_SIM_TUNING`) |
 
 The default worker is resolved with `new URL("./worker.js", import.meta.url)` next to `dist/index.js`, which Vite and webpack 5 bundle. Otherwise pass a factory, for example in Vite:
 
@@ -122,7 +122,7 @@ If the worker cannot start or errors, the fluid continues on the main thread. Th
 import { createGlyphFluidReader } from "@glyphcss/fluid/reader";
 
 const reader = createGlyphFluidReader(host, {
-  text: "Molty reads one word at a time, out of the fluid.",
+  text: "Words appear one at a time, out of the fluid.",
   wpm: 250,
   shape: "circle",   // the device's round screen
   loop: 2600,        // ms of rest, then read again
@@ -134,12 +134,12 @@ reader.clock.setText("Something new.");
 reader.destroy();
 ```
 
-Each word's optimal recognition point (ORP) letter is pivoted on the centre column and drawn in the accent colour, in one of molty's two looks:
+Each word's optimal recognition point (ORP) letter is pivoted on the centre column and drawn in the accent colour, in one of two looks:
 
 - `look: "plain"` (default): the fluid pools into a band and real letters condense out of it, scrambling through ramp glyphs (`.:-=+*#%@`) into the letter as ink arrives under each one, riding the wave, and melting back after the last word. They are DOM text: one `<span>` per letter over the `<pre>`, at most one inline-style write per letter per frame, text written only when the shown character changes. Bold monospace, `font` to change it.
 - `look: "glyph"`: the fluid itself takes the letter shapes in a heavy, condensed face, each word sized to fill the host on its own.
 
-The showing word is kept as text in a visually hidden element (`ariaLive`, default `"off"`); under reduced motion plain letters show settled. The rules are molty's, shared with its firmware: ORP by core length (≤1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, ≥14 → 4), and `delay = max(40, 60000/wpm × long × punctuation)`. They and the clock are plain functions with no fluid dependency:
+The showing word is kept as text in a visually hidden element (`ariaLive`, default `"off"`); under reduced motion plain letters show settled. The rules: ORP by core length (≤1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, ≥14 → 4), and `delay = max(40, 60000/wpm × long × punctuation)`. They and the clock are plain functions with no fluid dependency:
 
 ```ts
 import { tokenizeGlyphReaderText, glyphReaderWordDelay, createGlyphReaderClock } from "@glyphcss/fluid/reader";
@@ -158,7 +158,7 @@ The fluid's `<pre>` is `aria-hidden`: keep the sentence in the page for assistiv
 | `GlyphFluidTargets.text / image / mesh` | Target specs for `addTarget`; the live target can `condense`, `melt`, `remove`. |
 | `createGlyphFluidReader(host, options?)` | `./reader`: the speed reader; `clock`, `fluid`, `ready`, `destroy`. |
 | `createGlyphReaderClock` | `./reader`: `play`, `pause`, `seek`, `setWpm`, `setText`, `subscribe`. |
-| `tokenizeGlyphReaderText` / `glyphReaderOrp` / `glyphReaderWordDelay` | `./reader`: molty's reader rules. |
+| `tokenizeGlyphReaderText` / `glyphReaderOrp` / `glyphReaderWordDelay` | `./reader`: the reader rules. |
 | `GlyphFluidSim`, `configureGlyphFluidRect` / `Disc`, `stepGlyphFluidSim` | The simulation without a DOM. |
 | `GlyphFluidCore`, `handleGlyphFluidWorkerMessage` | One pipeline step (ops → targets → step → cells → encode); the worker protocol. |
 | `@glyphcss/fluid/worker` | The worker entry for your bundler. |
@@ -180,4 +180,4 @@ Per-cell colour needs `font-palette` with `@font-palette-values` (Chrome 101+, S
 
 ## License
 
-MIT. The simulation and reader rules are molty.uno's, ported to TypeScript.
+MIT.

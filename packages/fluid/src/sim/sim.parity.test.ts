@@ -1,8 +1,8 @@
-// The TS port must step bit-identically to molty's vendored sim.js (the firmware runs the
+// The TS port must step bit-identically to the reference's vendored sim.js (the firmware runs the
 // same algorithm as C). Seeded inputs exercise every branch: targets with colour and
 // accent, impulses, pushes, swirl kicks, rotation, the osc/vibe/sheet forcings, hold.
 import { describe, expect, it } from "vitest";
-import { FluidSim } from "../../reference/molty-fluid/sim.js";
+import { FluidSim } from "../../reference/fluid/sim.js";
 import { GlyphFluidSim } from "./sim";
 import { applyGlyphFluidOp, configureGlyphFluidRect, type GlyphFluidOp } from "./ops";
 
@@ -70,7 +70,7 @@ function drive(port: AnySim, ref: AnySim, seed: number, frames: number, mutate?:
   return worst;
 }
 
-describe("GlyphFluidSim parity with molty's sim.js", () => {
+describe("GlyphFluidSim parity with the reference's sim.js", () => {
   it("steps the disc fluid bit for bit", () => {
     const port = new GlyphFluidSim(48, 30, 10, 16);
     const ref = new FluidSim(48, 30, 10, 16);

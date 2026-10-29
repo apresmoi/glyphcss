@@ -1,4 +1,4 @@
-// @glyphcss/fluid — molty.uno's braille fluid as a glyphcss text surface.
+// @glyphcss/fluid — a braille fluid as a glyphcss text surface.
 // Layers, each usable alone: sim (pure, worker-safe) → cells → atlas encode → runtime.
 
 export { createGlyphFluid } from "./runtime/createGlyphFluid";

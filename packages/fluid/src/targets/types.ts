@@ -52,7 +52,7 @@ export interface GlyphFluidTargetImpl {
   readonly strengthOff: number;
   /**
    * How the shape firms up after this target condenses or melts: `hold` stays 0 for
-   * `delay` s, then eases to 1 over `ramp` s. Default 0.4 / 1.0 (molty's page states).
+   * `delay` s, then eases to 1 over `ramp` s. Default 0.4 / 1.0 (the reference's page states).
    */
   readonly hold?: { delay: number; ramp: number };
   /** Re-measure against a (new) layout; DOM reads happen here, never per frame. */

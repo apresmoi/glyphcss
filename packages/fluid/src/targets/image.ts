@@ -1,5 +1,5 @@
 // An image → ink + colour: area-averaged onto the cells under `rect`. Bright, opaque
-// pixels pull the most ink (molty's creature shading curve); colour is the pixel colour.
+// pixels pull the most ink (the reference's creature shading curve); colour is the pixel colour.
 import { glyphFluidImageCells, glyphFluidShadeInk, mergeGlyphFluidCells, type GlyphFluidImageCells } from "./raster";
 import { elementRect, resolveTargetOptions, type GlyphFluidCellBox, type GlyphFluidLayout, type GlyphFluidRect, type GlyphFluidTargetImpl, type GlyphFluidTargetOptions } from "./types";
 import type { GlyphFluidTargetFrame } from "./frame";

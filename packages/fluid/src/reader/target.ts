@@ -1,6 +1,6 @@
-// The reader's word target: molty's speed-text target (`creatures/js/fluid/targets.js`,
+// The reader's word target: the reference's speed-text target (`creatures/js/fluid/targets.js`,
 // TextTarget) over the fluid's host box, in both of its looks:
-//   "plain" (molty's website default): the fluid pools into a band under the word, and
+//   "plain" (website default): the fluid pools into a band under the word, and
 //     real letters (`letters.ts`, DOM text over the <pre>) condense out of it once
 //     enough ink has arrived under each one; the sim blanks the cells under shown letters.
 //   "glyph": each word is rasterised as large as it fits (sized per word: a sentence-wide
@@ -19,16 +19,16 @@ import { GLYPH_FLUID_READER_SHOW_INK, GlyphFluidReaderLetters, type GlyphFluidRe
 /** How the reader draws a word. */
 export type GlyphFluidReaderLook = "plain" | "glyph";
 
-/** molty's panel size: font constants below are in its 412 px units. */
+/** the reference's panel size: font constants below are in its 412 px units. */
 const PANEL = 412;
 const STRETCH_Y = 1.9;
 /** Share of the host's half-width a word half may use (room for the circle's rim). */
 const FIT = 0.86;
 const FONT = `"Arial Black", "Helvetica Neue", Arial, sans-serif`;
-/** Plain look: ink under each letter (molty's 0.62) and how long a melt runs before the letters go. */
+/** Plain look: ink under each letter (the reference's 0.62) and how long a melt runs before the letters go. */
 const PLAIN_INK = 0.62;
 const MELT_END = 0.8;
-/** The meniscus tint (molty's wv = 0 colour); the word itself is `color` (wv = 1). */
+/** The meniscus tint (the reference's wv = 0 colour); the word itself is `color` (wv = 1). */
 const TINT: [number, number, number] = [0.6, 0.68, 0.92];
 
 /** Per-cell ink and ORP share of a rasterised word. */
@@ -69,7 +69,7 @@ export function glyphFluidReaderExtent(token: GlyphReaderToken): number {
   return Math.max(1, token.orp + 0.5, token.word.length - token.orp - 0.5);
 }
 
-/** Plain look: one type size for a whole sentence (molty's setSentence), in its 412 px panel units. */
+/** Plain look: one type size for a whole sentence (the reference's setSentence), in its 412 px panel units. */
 export function glyphFluidReaderPlainFontPx(tokens: readonly GlyphReaderToken[]): number {
   let ext = 1;
   for (const t of tokens) ext = Math.max(ext, glyphFluidReaderExtent(t));
@@ -91,7 +91,7 @@ export function glyphFluidReaderLetterSlots(token: GlyphReaderToken): { chars: s
   return { chars, orp };
 }
 
-// separable box blur (radius rx × ry), plain loops, as molty's target does
+// separable box blur (radius rx × ry), plain loops, as the reference's target does
 function blur(src: Float32Array, dst: Float32Array, tmp: Float32Array, W: number, H: number, rx: number, ry: number): void {
   for (let j = 0; j < H; j++)
     for (let i = 0; i < W; i++) {
@@ -117,7 +117,7 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   readonly options = resolveTargetOptions({});
   readonly strengthOn = 0.6;
   readonly strengthOff = 0.6;
-  /** molty's text state: the shape holds 0.2 s after a change and firms up within 0.4 s, so a word condenses inside its own time. */
+  /** the reference's text state: the shape holds 0.2 s after a change and firms up within 0.4 s, so a word condenses inside its own time. */
   readonly hold = { delay: 0.2, ramp: 0.4 };
   private cellBox: GlyphFluidCellBox | null = null;
   private pw = 0;
@@ -137,12 +137,12 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   private acc = new Float32Array(0);
   private cw = 1;
   private ch = 1;
-  /** Plain look: font px of the sentence in molty's panel units, the letters and their cell boxes. */
+  /** Plain look: font px of the sentence in the reference's panel units, the letters and their cell boxes. */
   private plainPx = 30;
   private plainExt = 1;
   private letters: GlyphFluidReaderLetter[] = [];
   private boxes: number[] = [];
-  /** px of wave displacement per molty panel px (the host's scale over molty's 412 px panel). */
+  /** px of wave displacement per reference panel px (the host's scale over the reference 412 px panel). */
   private wave = 1;
   /** Bumped when the letters are cleared after a melt: older probe results are dropped. */
   private generation = 0;
@@ -175,7 +175,7 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
     this.raster();
   }
 
-  /** The text was left: plain letters decode back into ramp glyphs and go (molty's melt). */
+  /** The text was left: plain letters decode back into ramp glyphs and go (the reference's melt). */
   melt(): void {
     if (this.melting) return;
     this.melting = true;
@@ -207,7 +207,7 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
     this.raster();
   }
 
-  /** Font px for `token`: molty's glyph-look formula in its 412 px panel, scaled to the host box. */
+  /** Font px for `token`: the reference's glyph-look formula in its 412 px panel, scaled to the host box. */
   fontPx(token: GlyphReaderToken): number {
     const sw = this.pw / PANEL, sh = this.ph / PANEL;
     return Math.max(40 * sh, Math.min(150 * sh, (380 * sw) / (2 * glyphFluidReaderExtent(token)) / 0.62));
@@ -223,9 +223,9 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   }
 
   /**
-   * molty's plain setWord: a row of letter slots 0.6 em apart with the ORP slot centred,
+   * the reference's plain setWord: a row of letter slots 0.6 em apart with the ORP slot centred,
    * ink PLAIN_INK in every cell whose centre falls inside a slot, accent under the ORP one.
-   * The row is a line of text, so it scales with the host's WIDTH (molty's panel is
+   * The row is a line of text, so it scales with the host's WIDTH (the reference's panel is
    * square), capped to fit its height; and each letter always inks the cell under its own
    * centre, so a slot thinner than a cell (a short banner host) still pools. The frame's
    * border rows are never written, so a host under 3 rows (about 40 px at the default
@@ -234,7 +234,7 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   private rasterPlain(box: GlyphFluidCellBox, tok: GlyphReaderToken): void {
     const { w, h } = box, { pw, ph, cw, ch } = this;
     const scale = pw / PANEL;
-    // molty's size floor (18) lets a very long word overrun the panel: shrink the sentence
+    // the reference's size floor (18) lets a very long word overrun the panel: shrink the sentence
     // until its longest half around the ORP fits inside FIT of the half-width
     const fit = ((pw / 2) * FIT) / (this.plainExt * 0.6);
     const fs = Math.min(this.plainPx * scale, (ph * 0.8) / 1.05, fit), adv = fs * 0.6, lh = fs * 1.05;
@@ -286,7 +286,7 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
       let fs = this.fontPx(tok);
       g.font = `900 ${fs}px ${FONT}`;
       g.textBaseline = "middle";
-      // molty's formula assumes 0.62 em per letter; heavy faces run wider, so shrink until
+      // the reference's formula assumes 0.62 em per letter; heavy faces run wider, so shrink until
       // the longer half around the pivot fits inside FIT of the host's half-width
       const half = () => {
         const p = g.measureText(before).width, w = g.measureText(focal).width;
@@ -315,7 +315,7 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   }
 
   // 'near' (wide, normalised) shapes the meniscus around the word; 'dark' (tight) is the
-  // softer falloff right at the letters. Radii are molty's, scaled from its 52 × 32 grid.
+  // softer falloff right at the letters. Radii are the reference's, scaled from its 52 × 32 grid.
   private shapeMeniscus(box: GlyphFluidCellBox): void {
     const { w, h } = box;
     const { near, dark, cov } = this, tmp = new Float32Array(w * h);

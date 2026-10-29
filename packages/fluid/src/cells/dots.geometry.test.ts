@@ -1,4 +1,4 @@
-// The default dot face (core's braille-dots atlas) must put every dot exactly where molty's
+// The default dot face (core's braille-dots atlas) must put every dot exactly where the reference's
 // canvas renderer fills it. The REAL GlyphRenderer.draw runs on a recording 2D context;
 // every dot rect it fills, as a fraction of its cell, must equal the atlas's dot rect for
 // that Unicode bit (font units over the advance × unitsPerEm cell, y flipped from the
@@ -6,7 +6,7 @@
 // assets/glyph-atlas/test-atlas.py.
 import { describe, expect, it } from "vitest";
 import { GLYPH_FONT_ATLAS_BRAILLE_DOTS } from "glyphcss";
-import { GlyphRenderer } from "../../reference/molty-fluid/render.js";
+import { GlyphRenderer } from "../../reference/fluid/render.js";
 import { GlyphFluidSim } from "../sim/sim";
 import { configureGlyphFluidRect } from "../sim/ops";
 import { GLYPH_FLUID_DOTS_TO_BRAILLE } from "./cells";
@@ -29,7 +29,7 @@ function canvasDots(): Map<number, number[][]> {
       if (w >= PANEL) return;
       const i = Math.floor((x + w / 2) / cw), j = Math.floor((y + h / 2) / ch);
       const r = [(x - i * cw) / cw, (y - j * ch) / ch, (x + w - i * cw) / cw, (y + h - j * ch) / ch];
-      // molty's dot index q: column q >> 2, row q & 3
+      // the reference's dot index q: column q >> 2, row q & 3
       const q = (r[0]! + r[2]! > 1 ? 4 : 0) + Math.round(((r[1]! + r[3]!) / 2 - 0.14) / 0.24);
       if (!byQ.has(q)) byQ.set(q, []);
       byQ.get(q)!.push(r);
@@ -41,7 +41,7 @@ function canvasDots(): Map<number, number[][]> {
   return byQ;
 }
 
-describe("braille-dots face vs molty's canvas dots", () => {
+describe("braille-dots face vs the reference's canvas dots", () => {
   it("is the fluid's default face", () => {
     expect(glyphFluidAtlas()).toBe(GLYPH_FONT_ATLAS_BRAILLE_DOTS);
   });

@@ -95,10 +95,10 @@ Writes (all checked in):
     ascii-atlas-font.json -- base64 WOFF2; imported lazily via fontAtlasAsciiPayload.ts
   `braille-dots` -- the BRAILLE-DOTS variant (family "GlyphCssAtlasBrailleDots"),
   used by @glyphcss/fluid: the 256 braille patterns as synthesised rectangles
-  at molty's canvas dot positions and sizes (`DOTS_*` below), in an em square
+  at canvas-style dot positions and sizes (`DOTS_*` below), in an em square
   that IS the cell (advance 1000 / unitsPerEm 1600 = aspect 1.6; ascent 1600,
   descent 0). Menlo/DejaVu braille spans a TEXT line (~1.93 cell aspect), so
-  on molty's 1.6 cell its rows bunch across cell boundaries; this face is the
+  on a 1.6 cell its rows bunch across cell boundaries; this face is the
   cell-shape fix, not a correction of the universal outlines. Glyph index =
   braille mask, same 30 slots and mapping formula as the universal atlas,
   wholly in Supplementary PUA-A (256 x 30 = 7,680 > the BMP PUA's 6,400):
@@ -174,14 +174,14 @@ INK_GLYPHS = "·‾▔-_\\▏|▕/"
 JUNCTION_GLYPHS = "│─└┘┌┐├┤┬┴┼"
 WIREFRAME_TIER_PALETTES = ("default", "ascii")
 
-# Braille-dots variant: molty's canvas dot geometry, the source of truth being
-# packages/fluid/reference/molty-fluid/render.js (`DOT_W`/`DOT_H` and the
+# Braille-dots variant: canvas-style dot geometry, the source of truth being
+# packages/fluid/reference/fluid/render.js (`DOT_W`/`DOT_H` and the
 # `fillRect` in `draw`): dot centres at x = 0.3 | 0.7 of the cell width,
 # y = 0.14 + 0.24 * row of the cell height from the top, each 0.26 x 0.15 of
 # the cell. The em square IS the cell: ascent = unitsPerEm, descent 0, so with
 # font-size = line-height = cell height, the line box and the cell coincide.
 DOTS_UPM = 1600
-DOTS_ADVANCE = 1000  # cell height / width = 1.6, molty's device cell
+DOTS_ADVANCE = 1000  # cell height / width = 1.6, the cell
 DOTS_COL_X = (0.3, 0.7)
 DOTS_ROW_Y0 = 0.14
 DOTS_ROW_STEP = 0.24
@@ -441,7 +441,7 @@ def ascii_glyph_set():
 
 def braille_dot_rects():
     """Font-unit rect `(x0, y0, x1, y1)` (y up from the baseline = cell bottom)
-    of each Unicode braille dot bit 0..7: molty's canvas dot at its cell
+    of each Unicode braille dot bit 0..7: canvas-style dot at its cell
     fraction, mapped onto the DOTS_ADVANCE x DOTS_UPM cell."""
     rects = []
     for col, row in BRAILLE_BIT_DOTS:

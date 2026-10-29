@@ -1,4 +1,4 @@
-// The per-cell decision of molty's canvas renderer (`reference/molty-fluid/render.js`,
+// The per-cell decision of the reference's canvas renderer (`reference/fluid/render.js`,
 // GlyphRenderer.draw with braille "all", palette "pastel", edges 1) as DATA:
 // which of the 8 sub-dots a cell lights and in what colour. `cells.parity.test.ts` runs
 // the real renderer on a recording 2D context and requires the same dots and colours.

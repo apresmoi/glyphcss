@@ -20,7 +20,7 @@ export interface GlyphFluidRectOptions {
 }
 
 /**
- * Reshape a disc sim into molty.uno's full-rectangle page fluid: every cell but the
+ * Reshape a disc sim into a full-rectangle page fluid: every cell but the
  * one-cell border is inside, the sponge is a 3-cell edge band and there is no rim fade.
  * Noise frequencies scale with the grid's CSS width (≥ 1) so eddies keep their on-screen
  * size on wide screens, exactly as the landing page does.
@@ -42,7 +42,7 @@ export function configureGlyphFluidRect(sim: GlyphFluidSim, cellW: number, opts:
 }
 
 /**
- * Keep the constructor's disc (molty's round device screen: the circle inscribed in the
+ * Keep the constructor's disc (a circular surface: the circle inscribed in the
  * grid in stage space, its sponge and rim fade) and give it the page fluid's field
  * colour, level, noise scale and relax rates. The rect shape applies the same field.
  */

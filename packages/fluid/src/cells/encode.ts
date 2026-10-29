@@ -21,8 +21,8 @@ export type GlyphFluidEncoding = "atlas" | "mono" | "plain";
 
 /**
  * Which core atlas draws the dots. `"dots"` (default): `GLYPH_FONT_ATLAS_BRAILLE_DOTS`,
- * molty's dot rectangles in a font whose em square is the 1 × 1.6 cell, so dots sit where
- * molty's canvas draws them. `"universal"`: `GLYPH_FONT_ATLAS`, whose braille comes from
+ * the reference's dot rectangles in a font whose em square is the 1 × 1.6 cell, so dots sit where
+ * the reference's canvas draws them. `"universal"`: `GLYPH_FONT_ATLAS`, whose braille comes from
  * Menlo/DejaVu and spans a text line (~1.93 aspect), so on a 1.6 cell its rows bunch
  * across cell boundaries.
  */

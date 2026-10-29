@@ -101,7 +101,7 @@ class AtlasFontTests(unittest.TestCase):
 
 
 class BrailleDotsAtlasTests(unittest.TestCase):
-    """The braille-dots variant: 256 patterns + space, molty's dot rects, a
+    """The braille-dots variant: 256 patterns + space, the fluid's dot rects, a
     1000 x 1600 cell, the universal atlas's 30 slots in Supplementary PUA-A."""
 
     @classmethod
@@ -165,7 +165,7 @@ class BrailleDotsAtlasTests(unittest.TestCase):
                 lsb = self.font["hmtx"][f"shape{mask}"][1]
                 self.assertEqual(lsb, min((b[0] for b in boxes), default=0))
 
-    def test_dot_rects_are_molty_canvas_geometry(self):
+    def test_dot_rects_are_reference_canvas_geometry(self):
         # render.js: centres x = 0.3 | 0.7 cell, y = 0.14 + 0.24 * row from the top,
         # size 0.26 x 0.15 cell; Unicode bits 1-2-3/7 left, 4-5-6/8 right.
         bit_dots = [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (0, 3), (1, 3)]

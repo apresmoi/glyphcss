@@ -28,7 +28,7 @@ One render pass walks all meshes in scene order, projects through the camera, fi
 - `interactiveDownscale` divides `cols`/`rows` in place during a gesture; DOM-overlay consumers read `getBaseResolution()`.
 - Render-path cost reductions (cull runs, vertex index, memoization, depth before texture) must stay byte-identical; alpha rejection stays ahead of the depth write.
 - `atlas` encoding falls back to spans as a whole-scene decision; `fontAtlas` is fixed at creation; `dense` stays printable ASCII. Universal atlas: 212 original glyphs keep BMP PUA addresses; 248 brailles at U+F0000 + slot × 248 + index (`extension`), 30 slots; braille masks share the U+28FF fitting box. Encoded text is code-point-indexed (PUA-A cells are surrogate pairs).
-- Shipped atlases (universal, ASCII, braille-dots) share PUA ranges: decode by `font-family` (`glyphAtlasForFamily`). Each WOFF2 loads lazily, only when named; universal/ASCII artifacts are SHA-pinned. Braille-dots (fluid): molty's dots, em = 1 × 1.6 cell, U+F0000 + slot × 256 + mask.
+- Shipped atlases (universal, ASCII, braille-dots) share PUA ranges: decode by `font-family` (`glyphAtlasForFamily`). Each WOFF2 loads lazily, only when named; universal/ASCII artifacts are SHA-pinned. Braille-dots (fluid): canvas-style dot rectangles, em = 1 × 1.6 cell, U+F0000 + slot × 256 + mask.
 - Public API changes land in `@glyphcss/react` and `@glyphcss/vue` in the same PR; data-shaped element options are JS properties.
 
 ## Don't

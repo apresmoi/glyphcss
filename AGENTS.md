@@ -18,7 +18,7 @@ pnpm monorepo:
 | `packages/charts` | `@glyphcss/charts` | Charts over the cell canvas; `./3d` scene-object charts | `packages/charts/AGENTS.md` |
 | `packages/diagrams` | `@glyphcss/diagrams` | 2D graph, sequence and lane diagrams | `packages/diagrams/AGENTS.md` |
 | `packages/maps` | `@glyphcss/maps` | Geographic pipeline and the `createGlyphMap` widget | `packages/maps/AGENTS.md` |
-| `packages/fluid` | `@glyphcss/fluid` | molty.uno's braille fluid as a text surface (`createGlyphFluid`); `./reader` speed reader | `packages/fluid/AGENTS.md` |
+| `packages/fluid` | `@glyphcss/fluid` | braille fluid as a text surface (`createGlyphFluid`); `./reader` speed reader | `packages/fluid/AGENTS.md` |
 | `packages/fonts` | `@glyphcss/fonts` | Text → extruded meshes | `packages/fonts/AGENTS.md` |
 | `website` | not published | Astro + Starlight docs and workbenches (`/charts`, `/diagrams`, `/fluid`, `/maps`, `/synth`) | `website/AGENTS.md` |
 

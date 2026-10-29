@@ -20,7 +20,7 @@ export interface GlyphFluidCoreInit {
   monoColor: string;
   /** Default `"dots"`. */
   face?: GlyphFluidFace;
-  /** `"rect"` (default) fills the grid; `"circle"` keeps molty's disc inscribed in it. */
+  /** `"rect"` (default) fills the grid; `"circle"` keeps the reference's disc inscribed in it. */
   shape?: "rect" | "circle";
 }
 
