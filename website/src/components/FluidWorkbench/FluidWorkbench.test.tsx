@@ -209,6 +209,25 @@ it("drives the reader clock in place and shows its progress and the stats readou
   );
 });
 
+it("keeps the running reader's text and speed on the resolved config, including after a folder reset", async () => {
+  const example = findFluidExample("reader-plain")!;
+  const defaults = fluidExampleDefaults(example);
+  const f = encodeFluidConfig({ ...defaults, wpm: 600, text: "edited words here" }, defaults)!;
+  const host = await mount(`?example=reader-plain&f=${encodeURIComponent(f)}`);
+  const reader = live(runtime.readers)[0]!;
+  // Construction already carries the link's values; nothing is re-pushed.
+  expect(reader.config).toMatchObject({ wpm: 600, text: "edited words here" });
+  expect(reader.setWpm).not.toHaveBeenCalled();
+  expect(reader.setText).not.toHaveBeenCalled();
+
+  await click(
+    [...host.querySelectorAll(".dock-folder-title-reset-button")].find((b) => b.getAttribute("title")?.includes("reader options")),
+  );
+  expect(reader.destroy).not.toHaveBeenCalled();
+  expect(reader.setWpm).toHaveBeenLastCalledWith(defaults.wpm);
+  expect(reader.setText).toHaveBeenLastCalledWith(defaults.text);
+});
+
 it("exports the active example with the vanilla API only", async () => {
   const host = await mount("?example=reader-plain");
   await click(host.querySelector("[data-export-trigger]"));

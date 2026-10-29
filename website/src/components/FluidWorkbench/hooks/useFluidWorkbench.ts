@@ -113,6 +113,8 @@ export function useFluidWorkbench() {
   const readerHostRef = useRef<HTMLDivElement>(null);
   const readerRef = useRef<FluidReaderExampleMount | null>(null);
   const targetRef = useRef<FluidExampleTargetMount | null>(null);
+  /** The text and wpm the running reader was last given (at construction or by the sync below). */
+  const readerSyncedRef = useRef({ text: "", wpm: 0 });
 
   const defaults = useMemo(() => fluidExampleDefaults(example), [example]);
   const config = useMemo<FluidConfig>(() => ({ ...defaults, ...overrides }), [defaults, overrides]);
@@ -146,6 +148,7 @@ export function useFluidWorkbench() {
     if (!isReader || !host) return;
     const mount = mountFluidReaderExample(host, configRef.current, JSON.parse(tuningJson) as FluidTuning, setProgress);
     readerRef.current = mount;
+    readerSyncedRef.current = { text: configRef.current.text, wpm: configRef.current.wpm };
     setFluid(mount.fluid);
     return () => {
       readerRef.current = null;
@@ -155,6 +158,17 @@ export function useFluidWorkbench() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readerKey]);
+
+  // Text and wpm are live clock calls, not construction options. They follow the RESOLVED
+  // config, so an edit, a folder reset, an example switch and a link load all take this one path.
+  useEffect(() => {
+    const reader = readerRef.current;
+    if (!reader) return;
+    const synced = readerSyncedRef.current;
+    if (config.text !== synced.text) reader.setText(config.text);
+    if (config.wpm !== synced.wpm) reader.setWpm(config.wpm);
+    readerSyncedRef.current = { text: config.text, wpm: config.wpm };
+  }, [fluid, config.text, config.wpm]);
 
   const targetKey = pick(config, targetKeys);
   useEffect(() => {
@@ -213,8 +227,6 @@ export function useFluidWorkbench() {
     // A new zone kind starts at that kind's own floor level.
     if (next.zoneKind && next.zoneLevel === undefined) next.zoneLevel = FLUID_ZONE_LEVELS[next.zoneKind];
     setOverrides((current) => pruneFluidOverrides({ ...current, ...next }, defaults));
-    if (next.text !== undefined) readerRef.current?.setText(next.text);
-    if (next.wpm !== undefined) readerRef.current?.setWpm(next.wpm);
   };
   const reset = (keys: readonly FluidConfigKey[]) =>
     setOverrides((current) =>
