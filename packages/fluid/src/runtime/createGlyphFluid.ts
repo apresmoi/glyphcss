@@ -381,6 +381,10 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
       if (lt.impl.changed?.()) settleDirty = true;
     }
     if (reduced && !settleDirty) {
+      // Probes are target lifecycle (the reader's melt timer runs in them), asked every
+      // frame; only the rasterising below is skipped. Their results need a stepped frame,
+      // so a settled frame drops them, and a letter set that melts out clears itself.
+      collectProbes(dt);
       ops = [];
       return;
     }

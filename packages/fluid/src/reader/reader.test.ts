@@ -395,6 +395,20 @@ describe("createGlyphFluidReader, plain look", () => {
 });
 
 describe("plain look: review regressions", () => {
+  it("under reduced motion a cleared plain word melts out of the DOM", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("matchMedia", (q: string) => ({ matches: q.includes("reduce"), addEventListener() {}, removeEventListener() {} }));
+    const host = sizedHost();
+    const reader = createGlyphFluidReader(host, { text: "one", scheduler: fakeScheduler(), clock: "manual", look: "plain", field: { level: 0.8 } });
+    await reader.ready;
+    for (let i = 0; i < 5; i++) reader.fluid.step(1 / 60);
+    expect(shownIn(host)).toBe("one");
+    reader.clock.setText("");
+    for (let i = 0; i < 120; i++) reader.fluid.step(1 / 60);
+    expect(shownIn(host)).toBe("");
+    reader.destroy();
+  });
+
   const shownIn = (host: HTMLElement) =>
     Array.from(host.querySelectorAll<HTMLElement>("div[aria-hidden] > span")).filter((s) => s.style.opacity === "1").map((s) => s.textContent).join("");
 
