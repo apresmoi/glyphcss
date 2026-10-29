@@ -4,6 +4,9 @@ export default defineConfig([
   {
     entry: { index: "src/index.ts", reader: "src/reader/index.ts" },
     format: ["esm", "cjs"],
+    // The CJS build needs `import.meta.url` for the worker's `new URL("./worker.js", ...)`;
+    // without the shim it is `{}` and the worker silently falls back to the main thread.
+    shims: true,
     dts: true,
     splitting: false,
     sourcemap: false,
