@@ -35,7 +35,7 @@ Root `AGENTS.md` applies.
 - The landing version links to the npm registry's current `latest` release; show an honest package link if unavailable, never a hardcoded fallback version.
 - Scenes, animations, listeners, observers, subscriptions, and requests need one lifecycle owner and cleanup. Lazy demos tolerate unmounts and React StrictMode replay.
 - Show only render, controls, presets, and exports. Feedback belongs on controls; unavailable controls are dimmed with an accessible reason, not hidden or explained inside the viewport.
-- Every glyph `<pre>` uses the render font token (Glyph Mono first), `line-height: 1`. Live `.glyph-output` specificity exceeds glyphcss's injected two-class selector. Chat uses UI monospace to reproduce paste behavior.
+- Every glyph `<pre>` uses the render font token (Glyph Mono first), `line-height: 1`. The fluid reader's plain letters are spans over its `<pre>`, not a grid: pass the same token as its `font`. Live `.glyph-output` specificity exceeds glyphcss's injected two-class selector. Chat uses UI monospace to reproduce paste behavior.
 - Every glyph emitted by a canvas tier must exist in the Glyph Mono subset (`TargetPreview/glyphMonoCmap.test.ts`).
 - Copy ASCII/ANSI reads a separate logical render, never the dense preview grid or preview-only effects.
 - Diagrams: 2D; resize changes cells. Library owns wrap/spacing/direction; web expands/pans. Native export options; code HTML/TS/React/Vue, source Mermaid/JSON/Git log. Tray thumbnails follow the main render: visible tiles, one per idle task, cached per target/preset; cleanup cancels queued work.

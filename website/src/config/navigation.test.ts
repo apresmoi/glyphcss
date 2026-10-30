@@ -8,7 +8,9 @@ it("marks a workbench only on its own page and its docs pages as Usage", () => {
   expect(active("/maps/")).toEqual(["Maps"]);
   expect(active("/charts")).toEqual(["Charts"]);
   expect(active("/diagrams/")).toEqual(["Diagrams"]);
-  for (const docs of ["/maps/overview/", "/charts/bar/", "/diagrams/options/", "/guides/effects/", "/quickstart/"]) {
+  expect(active("/fluid")).toEqual(["Fluid"]);
+  expect(active("/fluid/")).toEqual(["Fluid"]);
+  for (const docs of ["/fluid/overview/", "/fluid/reader/", "/maps/overview/", "/charts/bar/", "/diagrams/options/", "/guides/effects/", "/quickstart/"]) {
     expect(active(docs)).toEqual(["Usage"]);
   }
   expect(active("/examples/city")).toEqual(["Examples"]);

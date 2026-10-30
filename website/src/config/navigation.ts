@@ -4,6 +4,7 @@ export const SITE_LINKS = [
   { href: "/gallery", label: "Gallery" },
   { href: "/synth", label: "Synth" },
   { href: "/maps", label: "Maps" },
+  { href: "/fluid", label: "Fluid" },
   { href: "/charts", label: "Charts" },
   { href: "/diagrams", label: "Diagrams" },
   { href: "/examples/world", label: "Examples" },
@@ -21,6 +22,6 @@ export function isSiteLinkActive(pathname: string, href: string): boolean {
       path !== "/" &&
       path !== "/bench"
     );
-  // Workbenches are single pages; /maps/*, /charts/* and /diagrams/* are docs under Usage.
+  // Workbenches are single pages; /maps/*, /charts/*, /diagrams/* and /fluid/* are docs under Usage.
   return path === href;
 }

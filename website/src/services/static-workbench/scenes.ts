@@ -2,6 +2,13 @@ import { readFile } from "node:fs/promises";
 import { recenterPolygons, rotateVec3, type Polygon } from "@glyphcss/core";
 import { composeText, parseFont } from "@glyphcss/fonts";
 import { getGlyphEffect, GlyphFieldSynthEffect } from "@glyphcss/effects";
+import {
+  GlyphFluidCore,
+  createGlyphFluidTargetFrame,
+  mergeGlyphFluidCells,
+  writeGlyphFluidZones,
+  type GlyphFluidOp,
+} from "@glyphcss/fluid";
 import { GlyphMapClassifiers, glyphMapDecodeGeoTileInt16, glyphMapGlobe, glyphMapPolygons } from "@glyphcss/maps";
 import {
   buildCellGrid,
@@ -23,6 +30,7 @@ import { fitWordArtZoom } from "../../features/wordart/model/parameters";
 import { paletteColorsFor } from "../../features/maps/model/config";
 import { MAPS_FRESH_EXAGGERATION, MAPS_URL_DEFAULTS } from "../../features/maps/services/mapsUrlState";
 import { DEFAULT_MAP_LIGHTING } from "../../features/maps/model/lighting";
+import { FLUID_DEFAULTS, FLUID_HEADING, FLUID_HEADING_COLOR } from "../../features/fluid/model/fluidWorkbench";
 
 function gridRender(grid: CellGrid) {
   return { text: gridText(grid), html: encodeGlyphBuffers(grid.char, grid.color, grid.cols, grid.rows, true) };
@@ -206,4 +214,79 @@ export async function staticMap(view: { centerLon?: number; centerLat?: number; 
     return rgb && rgb[2]! > rgb[0]! && rgb[2]! > rgb[1]! ? "~" : char;
   });
   return { title: "Earth · NOAA ETOPO1 terrain · default globe view", ...gridRender(result.grid) };
+}
+
+const hexRgb = (hex: string) =>
+  [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16) / 255) as [number, number, number];
+
+/**
+ * The /fluid stage without a browser: the heading's letters (the bundled font through
+ * compileScene, as WordArt's static render) are the fluid's text target, and the package's
+ * own GlyphFluidCore steps the field the workbench runs until the word has condensed.
+ */
+export async function staticFluid(cols = 120, rows = 36) {
+  const cellW = 8,
+    cellH = cellW * 1.6;
+  const bytes = await readFile("public/fonts/default.ttf");
+  const font = parseFont(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+  const letters = recenterPolygons(composeText(font, FLUID_HEADING, { size: 100, depth: 1 }));
+  const box = {
+    i0: Math.round(cols * 0.18),
+    j0: Math.round(rows * 0.2),
+    w: Math.round(cols * 0.64),
+    h: Math.round(rows * 0.6),
+  };
+  const camera = createGlyphPerspectiveCamera({
+    rotX: 90,
+    rotY: 0,
+    zoom: fitWordArtZoom(letters, box.w * 25, box.h * 50),
+  });
+  const raster = compileScene({ polygons: letters, camera, cols: box.w, rows: box.h, mode: "solid", useColors: false });
+  if (!raster.grid) throw new Error("Static fluid heading did not return a cell grid.");
+  const ink = Float32Array.from(raster.grid.char, (char) => (char === " " ? 0 : 1));
+
+  const core = new GlyphFluidCore({
+    cols,
+    rows,
+    cellW,
+    cellH,
+    fieldColor: hexRgb(FLUID_DEFAULTS.fieldColor),
+    fieldLevel: FLUID_DEFAULTS.fieldLevel,
+    tuning: {},
+    encoding: "plain",
+    monoColor: FLUID_DEFAULTS.fieldColor,
+  });
+  const frame = createGlyphFluidTargetFrame(cols, rows);
+  const [r, g, b] = hexRgb(FLUID_HEADING_COLOR);
+  mergeGlyphFluidCells(frame, box, 0, 0, ink, r, g, b);
+  // No zones: the whole field breathes at the field level, as on the live page.
+  writeGlyphFluidZones(frame, [], 0);
+  // What the runtime queues when the target turns on: a kick and a ring at its centre.
+  let ops: GlyphFluidOp[] = [
+    ["kick", 1.2],
+    ["impulse", 0, 0, 0.5, 0.06],
+  ];
+  const dt = 1 / 30;
+  let t = 0;
+  for (let n = 0; n < 90; n++) {
+    t += dt;
+    const breath = 0.5 - 0.5 * Math.cos((t / 4) * Math.PI * 2);
+    const hold = Math.min(1, Math.max(0, (t - 0.4) / 1.0));
+    core.advance({
+      ops,
+      params: { t, breath, dt, hold: hold * hold * (3 - 2 * hold) },
+      targets: frame.packed,
+      shimmer: 0.12,
+    });
+    ops = [];
+  }
+  core.render(t, 0.12);
+  const { mask, rgb } = core.cells;
+  const char = Array.from(mask, (m) => (m ? String.fromCharCode(0x2800 + m) : " "));
+  const color = Array.from(mask, (m, k) => (m ? `#${rgb[k]!.toString(16).padStart(6, "0")}` : null));
+  return {
+    title: `The word "${FLUID_HEADING}" condensed out of the braille fluid`,
+    text: Array.from({ length: rows }, (_, row) => char.slice(row * cols, (row + 1) * cols).join("")).join("\n"),
+    html: encodeGlyphBuffers(char, color, cols, rows, true),
+  };
 }

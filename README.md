@@ -423,6 +423,7 @@ There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays up
 | [`@glyphcss/charts`](packages/charts/README.md) | `@glyphcss/charts` | Declarative charts rendered as ASCII, box characters, or braille. |
 | [`@glyphcss/diagrams`](packages/diagrams/README.md) | `@glyphcss/diagrams` | Mermaid and graph diagrams, sequences, and branching histories rendered as text. |
 | [`@glyphcss/maps`](packages/maps/README.md) | `@glyphcss/maps` | Geographic data → glyphcss: projections, elevation tiles, a relief mesh, and the interactive `createGlyphMap` widget with a MapLibre-shaped layer vocabulary. |
+| [`@glyphcss/fluid`](packages/fluid/README.md) | `@glyphcss/fluid` | A living braille fluid as DOM text: text, images and meshes condense out of it; `./reader` shows one word at a time out of it. |
 
 ## License
 

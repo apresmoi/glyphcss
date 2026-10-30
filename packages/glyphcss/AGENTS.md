@@ -21,13 +21,14 @@ One render pass walks all meshes in scene order, projects through the camera, fi
 - Shadows: caster set is the scene's, one map shared across passes; `hidden` polygons cast nothing and leave the light volume; acne guard is internal and slope-scaled.
 - `Polygon.shadingNormal` changes shading and `CellGrid.normal` only; visibility, depth, shadows and id-map read geometry.
 - halfblock/quadrant with a hook: override only cells the hook wrote (pre/post diff); the no-hook fast path stays untouched.
-- Wireframe `charMode: "braille"`/`"quadrant"`/`"halfblock"` all rasterize edges DIRECTLY at a sub-cell resolution (never folded down from a finer mask — folding over-inks) via one data table (`WIREFRAME_SUBCELL_CONFIGS`), never a branch per charMode name; single colour per cell, so `transformCells`/`captureCells`/`hiddenLines`/`colorEncoding` all work exactly as plain wireframe's do. `"halfblock"`/`"quadrant"` ALSO have a separate, unrelated solid-mode two-colour-per-cell encoding — the two never share code or eligibility rules.
+- Wireframe `charMode: "braille"`/`"quadrant"`/`"halfblock"` rasterize edges DIRECTLY at sub-cell resolution (never folded down from a finer mask, which over-inks) via one data table (`WIREFRAME_SUBCELL_CONFIGS`), never a branch per charMode name; one colour per cell, so `transformCells`/`captureCells`/`hiddenLines`/`colorEncoding` work as in plain wireframe. `"halfblock"`/`"quadrant"` also have an unrelated solid-mode two-colour encoding (spans only); the two never share code or eligibility rules.
 - Label arbiter hides a label whole if any of its cells is foreign-won or `occluded`.
 - Canvas painters validate colours as canonical lowercase `#rrggbb` at write time and refuse `occluded`/`textFiller` cells; `resolveJunctions()` is idempotent; tiers are data tables, never branches on tier name.
 - `compileScene` is byte-identical to the runtime render; its `grid` is `null` for SOLID-mode halfblock/quadrant only (wireframe's single-colour sub-cell charModes always get a real grid); detail-layer options on object members throw; `objects` with semantic output throws.
 - `interactiveDownscale` divides `cols`/`rows` in place during a gesture; DOM-overlay consumers read `getBaseResolution()`.
 - Render-path cost reductions (cull runs, vertex index, memoization, depth before texture) must stay byte-identical; alpha rejection stays ahead of the depth write.
-- `atlas` encoding falls back to spans as a whole-scene decision; `fontAtlas` is fixed at creation; `dense` stays printable ASCII. Universal atlas covers U+2800–U+28FF at the common advance: original 212 glyphs retain BMP PUA addresses/stride, 248 appended brailles use U+F0000 + slot × 248 + index (`extension` metadata), sharing 30 colours. Braille masks share the U+28FF fitting box to preserve dot positions. Encoded text is code-point-indexed (extension cells are surrogate pairs); source grid cells stay single BMP glyphs. Wireframe braille is single-colour and atlas-eligible; solid halfblock/quadrant remain two-colour spans.
+- `atlas` encoding falls back to spans as a whole-scene decision; `fontAtlas` is fixed at creation; `dense` stays printable ASCII. Universal atlas: 212 original glyphs keep BMP PUA addresses; 248 brailles at U+F0000 + slot × 248 + index (`extension`), 30 slots; braille masks share the U+28FF fitting box. Encoded text is code-point-indexed (PUA-A cells are surrogate pairs).
+- Shipped atlases (universal, ASCII, braille-dots) share PUA ranges: decode by `font-family` (`glyphAtlasForFamily`). Each WOFF2 loads lazily, only when named; universal/ASCII artifacts are SHA-pinned. Braille-dots (fluid): canvas-style dot rectangles, em = 1 × 1.6 cell, U+F0000 + slot × 256 + mask.
 - Public API changes land in `@glyphcss/react` and `@glyphcss/vue` in the same PR; data-shaped element options are JS properties.
 
 ## Don't
@@ -48,7 +49,7 @@ One render pass walks all meshes in scene order, projects through the camera, fi
 ## Key gates
 
 - Occlusion: `rasterize.occlusionSeam`, `rasterize.occlusionPerspective`, `rasterize.occlusionHidden`, `rasterize.occlusionCullChunks`, `createGlyphScene.foreignOcclusion`, `createGlyphScene.detailGroup`.
-- Encoders: `rasterize.halfblock`, `rasterize.quadrant`, `rasterize.braille`, `rasterize.wireframeSubcell`, `colorEncoding.*`, `colorTolerance`.
+- Encoders: `rasterize.halfblock`, `rasterize.quadrant`, `rasterize.braille`, `rasterize.wireframeSubcell`, `colorEncoding.*`, `colorTolerance`, `fontAtlas*`, `test-atlas.py`.
 - Effects: `createGlyphScene.effects`, `createGlyphScene.targeting`, `composeGlyphEffects`, `effectCompositor`.
 - Scene: `shadow`, `shadow.hidden`, `rasterize.shadingNormal`, `textureWrap`, `rasterize.nearClipTexture`, `createGlyphScene.sceneObject`, `labelArbiter`, `styles.hotspotSelect`, `createGlyphOrbitControls`.
 - Canvas: `text`, `subcell`, `junctions`, `tiers`, `glyphInk`, `sampler`.

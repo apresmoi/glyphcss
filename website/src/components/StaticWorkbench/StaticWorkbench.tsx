@@ -5,6 +5,7 @@ import { WordArtWorkbench } from "../WordArtWorkbench";
 import { LoadersWorkbench } from "../LoadersWorkbench";
 import { ChartsWorkbench } from "../ChartsWorkbench";
 import { DiagramsWorkbench } from "../DiagramsWorkbench";
+import { FluidWorkbench } from "../FluidWorkbench";
 import { createChartsWorkbenchState } from "../../features/charts/model/chartsSpec";
 import { createGlyphDiagramsWorkbenchState } from "../../features/diagrams/model/diagramsWorkbenchState";
 import type { InstrumentSnapshot } from "../InstrumentWorkbench";
@@ -110,6 +111,7 @@ export function StaticWorkbench({
     loaders: () => <LoadersWorkbench snapshot={snapshot} />,
     charts: () => <ChartsWorkbench initialState={createChartsWorkbenchState()} snapshot={snapshot} />,
     diagrams: () => <DiagramsWorkbench initialState={createGlyphDiagramsWorkbenchState()} snapshot={snapshot} />,
+    fluid: () => <FluidWorkbench snapshot={snapshot} />,
   }[page];
   return (
     <div className={styles.root} data-static-workbench={page}>

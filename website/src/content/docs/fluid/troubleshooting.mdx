@@ -1,0 +1,49 @@
+---
+title: "Fix fluid worker, colour, alignment and reader problems"
+description: Diagnose a @glyphcss/fluid that runs on the main thread, draws in one colour, misplaces its targets, drops to 30 fps, or reads words too fast.
+---
+
+Start with `fluid.stats()`: it says which pipeline runs (`"worker"` or `"main"`), the encoding, the frame cap, the grid and how many vsyncs were skipped.
+
+```ts
+console.log(fluid.stats());
+// { fps: 60, pipeline: "worker", encoding: "atlas", cols: 144, rows: 66, frames: 812, stalls: 3, stepMs: 3.5, lit: 4210 }
+```
+
+## It runs on the main thread
+
+`pipeline: "main"` means the worker never started or failed.
+
+- Your bundler did not emit `worker.js` next to the package's `dist/index.js`. Pass a factory: in Vite, `import FluidWorker from "@glyphcss/fluid/worker?worker"` and `worker: () => new FluidWorker()`.
+- A Content Security Policy blocks workers: allow `worker-src` for your bundle's origin (or `blob:` if your bundler inlines workers).
+- `prefers-reduced-motion: reduce` is set: reduced motion always runs on the main thread (it draws only settled stills).
+- `worker: false` was passed.
+
+## Everything is one colour
+
+`encoding: "plain"` means the atlas font did not load or the browser lacks `font-palette` (Chrome 101+, Safari 15.4+, Firefox 107+). The fluid then draws real braille in one colour. Check the network panel for the atlas font request and any CSP `font-src` rule. `encoding: "mono"` is one colour by choice.
+
+## Targets land in the wrong place
+
+- The element moved without a resize the fluid could see (an animation, a collapsing sibling, a late image): call `fluid.relayout()`.
+- With `glue: "document"` the host must be a fixed, viewport-sized layer (`position: fixed; inset: 0`); the fluid follows the page scroll by whole rows.
+- Web fonts: targets re-measure when `document.fonts.ready` resolves. A font loaded later by other means needs `relayout()`.
+- The grid shears or columns drift: the `<pre>` must use the fluid's own font settings; don't override its `font-family`, `letter-spacing` or `line-height` from page CSS.
+
+## It dropped to 30 fps
+
+The governor drops to 30 for the session after a 60-frame window with more than 20 % missed vsyncs. That usually means the main-thread pipeline on a slow device ([measured](/fluid/runtime/#measured): about 20 % misses at a ×4 CPU throttle). Make sure the worker runs, reduce `grid.targetCols`, or set `fps: 30` up front. `fpsFallback: false` keeps 60 regardless.
+
+## The reader is hard to read
+
+- Use the default `look: "plain"`: real letters, legible at 600 wpm. In `look: "glyph"` each word is a target the ink has to flow into; at high `wpm` short words leave before they settle, and long words are drawn smaller (each word is sized to fit the host).
+- Plain letters still scrambling (`.:-=`): the ink under them has not arrived yet. It pools in a band shared by consecutive words, so this only shows at a sentence start or on a much longer word; lower `wpm` if it bothers.
+- Give the host room: the letters scale with the host's width; a host under about 240 px wide makes them small (glyph look: few cells tall). Plain letters need at least 3 rows of height (about 40 px at 416 px wide): the fluid never inks its border rows, so a thinner host has nowhere to pool.
+- Keep the default 52-column grid: denser grids make smaller dots, not sharper letters.
+- Under reduced motion each word is a single settled still, by design.
+
+## Nothing draws
+
+- The host has no size: the grid comes from its box (`glue: "host"`). Give it a width and height.
+- `clock: "manual"` draws only on `fluid.step(dt)`.
+- The reader's `text` is empty or whitespace: the clock has no words and never starts.

@@ -3,7 +3,7 @@ import { Window } from "happy-dom";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StaticWorkbenchRender } from "../../components/StaticWorkbench";
-import { staticGallery, staticLoader, staticMap, staticSynth, staticWordArt } from "./scenes";
+import { staticFluid, staticGallery, staticLoader, staticMap, staticSynth, staticWordArt } from "./scenes";
 import { staticDiagrams } from "../../features/diagrams/render/staticDiagrams";
 import { staticCharts } from "../../features/charts/render/staticCharts";
 
@@ -53,7 +53,7 @@ describe("build-time workbench renders", () => {
     }
   });
 
-  it.each([staticGallery, staticLoader, staticMap, staticSynth, staticWordArt])(
+  it.each([staticFluid, staticGallery, staticLoader, staticMap, staticSynth, staticWordArt])(
     "renders %s without a browser",
     async (render) => {
       const result = await render();
@@ -62,6 +62,38 @@ describe("build-time workbench renders", () => {
       checkColoredText(result);
     },
   );
+
+  it("condenses the fluid heading out of a braille field run by the package's own core", async () => {
+    const result = await staticFluid();
+    const rows = result.text.split("\n");
+    expect(rows).toHaveLength(36);
+    expect(rows.every((row) => row.length === 120)).toBe(true);
+    expect(result.text.replace(/\s/g, "")).toMatch(/^[\u2801-\u28ff]+$/u);
+    const window = new Window();
+    try {
+      window.document.body.innerHTML = `<pre>${result.html}</pre>`;
+      // Bright (heading-coloured) cells, by grid position.
+      const bright: [number, number][] = [];
+      let row = 0,
+        col = 0;
+      for (const node of window.document.querySelector("pre")!.childNodes) {
+        const hex = (node as unknown as HTMLElement).getAttribute?.("style")?.match(/#([\da-f]{6})/i)?.[1];
+        const rgb = hex && [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16));
+        for (const char of node.textContent!) {
+          if (char === "\n") ((row += 1), (col = 0));
+          else {
+            if (rgb && Math.min(...rgb) > 200) bright.push([row, col]);
+            col += 1;
+          }
+        }
+      }
+      // The letters are lit in the heading's colour inside the heading's box; the field is dim.
+      expect(bright.length).toBeGreaterThan(40);
+      expect(bright.every(([r, c]) => r >= 6 && r < 30 && c >= 18 && c < 102)).toBe(true);
+    } finally {
+      window.happyDOM.abort();
+    }
+  });
 
   it("keeps the default WordArt framing readable across two horizontal lines", async () => {
     expect((await staticWordArt()).text).toMatchSnapshot();

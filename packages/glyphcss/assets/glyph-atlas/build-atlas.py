@@ -93,6 +93,20 @@ Writes (all checked in):
   `override-colors` engine limit, so this variant does not carry it.
     ascii-atlas.json      -- metadata; imported statically alongside atlas.json
     ascii-atlas-font.json -- base64 WOFF2; imported lazily via fontAtlasAsciiPayload.ts
+  `braille-dots` -- the BRAILLE-DOTS variant (family "GlyphCssAtlasBrailleDots"),
+  used by @glyphcss/fluid: the 256 braille patterns as synthesised rectangles
+  at canvas-style dot positions and sizes (`DOTS_*` below), in an em square
+  that IS the cell (advance 1000 / unitsPerEm 1600 = aspect 1.6; ascent 1600,
+  descent 0). Menlo/DejaVu braille spans a TEXT line (~1.93 cell aspect), so
+  on a 1.6 cell its rows bunch across cell boundaries; this face is the
+  cell-shape fix, not a correction of the universal outlines. Glyph index =
+  braille mask, same 30 slots and mapping formula as the universal atlas,
+  wholly in Supplementary PUA-A (256 x 30 = 7,680 > the BMP PUA's 6,400):
+  U+F0000 + slot * 256 + mask. No Menlo needed. `dotGeometry` in the manifest
+  records the rects (test-atlas.py checks the outlines against it; the fluid
+  package checks it against render.js).
+    braille-dots-atlas.json      -- metadata; imported statically alongside atlas.json
+    braille-dots-atlas-font.json -- base64 WOFF2; imported lazily via fontAtlasBrailleDotsPayload.ts
 See `main()` for why each payload is a separate file.
 """
 import base64
@@ -159,6 +173,22 @@ WIREFRAME_PALETTES = {
 INK_GLYPHS = "·‾▔-_\\▏|▕/"
 JUNCTION_GLYPHS = "│─└┘┌┐├┤┬┴┼"
 WIREFRAME_TIER_PALETTES = ("default", "ascii")
+
+# Braille-dots variant: canvas-style dot geometry, the source of truth being
+# packages/fluid/reference/fluid/render.js (`DOT_W`/`DOT_H` and the
+# `fillRect` in `draw`): dot centres at x = 0.3 | 0.7 of the cell width,
+# y = 0.14 + 0.24 * row of the cell height from the top, each 0.26 x 0.15 of
+# the cell. The em square IS the cell: ascent = unitsPerEm, descent 0, so with
+# font-size = line-height = cell height, the line box and the cell coincide.
+DOTS_UPM = 1600
+DOTS_ADVANCE = 1000  # cell height / width = 1.6, the cell
+DOTS_COL_X = (0.3, 0.7)
+DOTS_ROW_Y0 = 0.14
+DOTS_ROW_STEP = 0.24
+DOTS_W = 0.26
+DOTS_H = 0.15
+# Unicode braille bit 0..7 -> (column, row): dots 1-2-3 left, 4-5-6 right, 7 left, 8 right.
+BRAILLE_BIT_DOTS = ((0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (0, 3), (1, 3))
 
 
 def universal_glyph_set(available_cmaps):
@@ -276,6 +306,8 @@ def _import_fallback_glyph(ch, cp, fallback_faces, target_upem, target_advance, 
 
 
 def build_font(glyphs, palette_size, out_path, family=FAMILY, extension=None):
+    """Menlo-sourced atlas (universal / ascii): resolve each glyph's outline
+    from Menlo or a vendored fallback, then assemble the COLR/CPAL font."""
     src = TTFont(SRC, fontNumber=0)
     src_cmap = src.getBestCmap()
     src_glyphs = src.getGlyphSet()
@@ -289,18 +321,9 @@ def build_font(glyphs, palette_size, out_path, family=FAMILY, extension=None):
         font = TTFont(path)
         fallback_faces.append((os.path.basename(path), font, font.getBestCmap(), font.getGlyphSet()))
 
-    glyf_source = {}
-    metrics = {}
-    glyph_order = [".notdef", "space"]
-    glyf_source[".notdef"] = TTGlyphPen(None).glyph()
-    metrics[".notdef"] = (advance, 0)
-    glyf_source["space"] = TTGlyphPen(None).glyph()
-    metrics["space"] = (advance, 0)
-
-    shape_names = []
+    shapes = []
     fallback_used = []
-    for gi, ch in enumerate(glyphs):
-        name = f"shape{gi}"
+    for ch in glyphs:
         cp = ord(ch)
         if cp in src_cmap:
             # Decompose composite glyphs (e.g. accented spacing modifiers built
@@ -310,19 +333,41 @@ def build_font(glyphs, palette_size, out_path, family=FAMILY, extension=None):
             src_glyphs[src_cmap[cp]].draw(rec)
             pen = TTGlyphPen(None)
             rec.replay(pen)
-            glyf_source[name] = pen.glyph()
-            metrics[name] = (advance, src["hmtx"][src_cmap[cp]][1])
+            shapes.append((pen.glyph(), (advance, src["hmtx"][src_cmap[cp]][1])))
         else:
-            glyf, glyph_metrics = _import_fallback_glyph(ch, cp, fallback_faces, upem, advance, ascent, descent)
-            glyf_source[name] = glyf
-            metrics[name] = glyph_metrics
+            shapes.append(_import_fallback_glyph(ch, cp, fallback_faces, upem, advance, ascent, descent))
             fallback_used.append(ch)
-        glyph_order.append(name)
-        shape_names.append(name)
 
     if fallback_used:
         print(f"imported {len(fallback_used)} glyph(s) from vendored fallback faces (not in Menlo): "
               f"{' '.join(f'{c!r}(U+{ord(c):04X})' for c in fallback_used)}")
+    return assemble_colr_font(shapes, upem, advance, ascent, descent, palette_size, out_path,
+                              family=family, extension=extension)
+
+
+def assemble_colr_font(shapes, upem, advance, ascent, descent, palette_size, out_path,
+                       family=FAMILY, extension=None, pua_start=PUA_START):
+    """The atlas font every variant shares: `shapes[i]` = `(glyf, (advance, lsb))`
+    is glyph i's outline; each (slot, glyph) pair gets one empty-outline base
+    glyph whose single COLR layer paints shape i in CPAL entry `slot`, at
+    `pua_start + slot * blockSize + i` (see the module docstring for
+    `extension`). A `pua_start` in Supplementary PUA-A may run to U+FFFFD."""
+    glyf_source = {}
+    metrics = {}
+    glyph_order = [".notdef", "space"]
+    glyf_source[".notdef"] = TTGlyphPen(None).glyph()
+    metrics[".notdef"] = (advance, 0)
+    glyf_source["space"] = TTGlyphPen(None).glyph()
+    metrics["space"] = (advance, 0)
+
+    shape_names = []
+    for gi, (glyf, glyph_metrics) in enumerate(shapes):
+        name = f"shape{gi}"
+        glyf_source[name] = glyf
+        metrics[name] = glyph_metrics
+        glyph_order.append(name)
+        shape_names.append(name)
+    glyph_count = len(shapes)
 
     def hue_palette(n):
         out = []
@@ -340,20 +385,20 @@ def build_font(glyphs, palette_size, out_path, family=FAMILY, extension=None):
     cmap = {0x0020: "space"}
     codepoints = []
     for ci in range(palette_size):
-        for gi in range(len(glyphs)):
+        for gi in range(glyph_count):
             base = f"c{ci}g{gi}"
             glyph_order.append(base)
             glyf_source[base] = TTGlyphPen(None).glyph()
             metrics[base] = (advance, 0)
             color_layers[base] = [(shape_names[gi], ci)]
             if extension and gi >= extension["glyphOffset"]:
-                count = len(glyphs) - extension["glyphOffset"]
+                count = glyph_count - extension["glyphOffset"]
                 cp = extension["puaStart"] + ci * count + gi - extension["glyphOffset"]
                 limit = 0xFFFFD  # PUA-A excludes the plane's two noncharacters
             else:
-                count = extension["glyphOffset"] if extension else len(glyphs)
-                cp = PUA_START + ci * count + gi
-                limit = 0xF8FF
+                count = extension["glyphOffset"] if extension else glyph_count
+                cp = pua_start + ci * count + gi
+                limit = 0xF8FF if pua_start < EXTENDED_PUA_START else 0xFFFFD
             if cp > limit:
                 raise SystemExit(f"atlas overflows its PUA block (needs {cp:#x})")
             cmap[cp] = base
@@ -364,13 +409,13 @@ def build_font(glyphs, palette_size, out_path, family=FAMILY, extension=None):
     fb.setupCharacterMap(cmap)
     fb.setupGlyf(glyf_source)
     fb.setupHorizontalMetrics(metrics)
-    fb.setupHorizontalHeader(ascent=src["hhea"].ascent, descent=src["hhea"].descent)
+    fb.setupHorizontalHeader(ascent=ascent, descent=descent)
     fb.setupNameTable({"familyName": family, "styleName": "Regular", "psName": f"{family}-Regular"})
     fb.setupOS2(
-        sTypoAscender=src["hhea"].ascent,
-        sTypoDescender=src["hhea"].descent,
-        usWinAscent=src["hhea"].ascent,
-        usWinDescent=-src["hhea"].descent,
+        sTypoAscender=ascent,
+        sTypoDescender=descent,
+        usWinAscent=ascent,
+        usWinDescent=-descent,
         achVendID="GLPH",
     )
     fb.setupPost()
@@ -394,17 +439,63 @@ def ascii_glyph_set():
     return sorted(chars, key=ord)
 
 
+def braille_dot_rects():
+    """Font-unit rect `(x0, y0, x1, y1)` (y up from the baseline = cell bottom)
+    of each Unicode braille dot bit 0..7: canvas-style dot at its cell
+    fraction, mapped onto the DOTS_ADVANCE x DOTS_UPM cell."""
+    rects = []
+    for col, row in BRAILLE_BIT_DOTS:
+        cx = DOTS_COL_X[col] * DOTS_ADVANCE
+        cy = (DOTS_ROW_Y0 + DOTS_ROW_STEP * row) * DOTS_UPM  # from the cell top
+        w, h = DOTS_W * DOTS_ADVANCE, DOTS_H * DOTS_UPM
+        rects.append((round(cx - w / 2), round(DOTS_UPM - (cy + h / 2)),
+                      round(cx + w / 2), round(DOTS_UPM - (cy - h / 2))))
+    return rects
+
+
+def braille_dot_shapes(rects):
+    """One outline per braille pattern U+2800 + mask: a closed rect per set bit,
+    drawn in bit order. The blank pattern is an empty (but present) glyph."""
+    shapes = []
+    for mask in range(256):
+        pen = TTGlyphPen(None)
+        lit = [rects[bit] for bit in range(8) if mask & (1 << bit)]
+        for x0, y0, x1, y1 in lit:
+            pen.moveTo((x0, y0))
+            pen.lineTo((x0, y1))
+            pen.lineTo((x1, y1))
+            pen.lineTo((x1, y0))
+            pen.closePath()
+        # lsb must equal xMin: engines that derive the origin from it would
+        # otherwise shift every dot sideways.
+        shapes.append((pen.glyph(), (DOTS_ADVANCE, min((r[0] for r in lit), default=0))))
+    return shapes
+
+
 def main():
     variant = sys.argv[1] if len(sys.argv) > 1 else "universal"
-    if variant not in ("universal", "ascii"):
-        raise SystemExit(f"unknown atlas variant {variant!r} (expected nothing or 'ascii')")
-
-    probe = TTFont(SRC, fontNumber=0)
-    available_cmaps = [("Menlo", probe.getBestCmap())]
-    for path in FALLBACK_SRCS:
-        available_cmaps.append((os.path.basename(path), TTFont(path).getBestCmap()))
+    if variant not in ("universal", "ascii", "braille-dots"):
+        raise SystemExit(f"unknown atlas variant {variant!r} (expected nothing, 'ascii' or 'braille-dots')")
 
     extension = None
+    pua_start = PUA_START
+    extra_manifest = {}
+    if variant == "braille-dots":
+        # Synthesised outlines: no source face, so no Menlo needed.
+        glyphs = [chr(0x2800 + mask) for mask in range(256)]
+        family = f"{FAMILY}BrailleDots"
+        prefix = "braille-dots-"
+        max_palette_size = UNIVERSAL_PALETTE_SIZE
+        pua_start = EXTENDED_PUA_START
+        rects = braille_dot_rects()
+        extra_manifest["dotGeometry"] = {
+            "unitsPerEm": DOTS_UPM, "advance": DOTS_ADVANCE, "dots": [list(r) for r in rects],
+        }
+    else:
+        probe = TTFont(SRC, fontNumber=0)
+        available_cmaps = [("Menlo", probe.getBestCmap())]
+        for path in FALLBACK_SRCS:
+            available_cmaps.append((os.path.basename(path), TTFont(path).getBestCmap()))
     if variant == "ascii":
         glyphs = ascii_glyph_set()
         family = f"{FAMILY}Ascii"
@@ -412,7 +503,7 @@ def main():
         # No 31 cap: it documented the universal atlas's budget division
         # (6400 / 212 = 30), not an engine limit -- see the module docstring.
         max_palette_size = BMP_PUA_SIZE // len(glyphs)
-    else:
+    elif variant == "universal":
         glyphs = universal_glyph_set(available_cmaps)
         family = FAMILY
         prefix = ""
@@ -424,7 +515,12 @@ def main():
 
     out_dir = os.path.dirname(os.path.abspath(__file__))
     ttf_path = os.path.join(out_dir, "_atlas.ttf")
-    codepoints = build_font(glyphs, max_palette_size, ttf_path, family=family, extension=extension)
+    if variant == "braille-dots":
+        codepoints = assemble_colr_font(
+            braille_dot_shapes(rects), DOTS_UPM, DOTS_ADVANCE, DOTS_UPM, 0, max_palette_size, ttf_path,
+            family=family, pua_start=pua_start)
+    else:
+        codepoints = build_font(glyphs, max_palette_size, ttf_path, family=family, extension=extension)
 
     font = TTFont(ttf_path)
     font.flavor = "woff2"
@@ -444,13 +540,14 @@ def main():
     manifest = {
         "family": family,
         "glyphs": glyphs,
-        "puaStart": PUA_START,
+        "puaStart": pua_start,
         "glyphCount": glyph_count,
         "maxPaletteSize": max_palette_size,
         "codepointRange": [min(codepoints), max(codepoints)],
     }
     if extension:
         manifest["extension"] = extension
+    manifest.update(extra_manifest)
     manifest_path = os.path.join(out_dir, f"{prefix}atlas.json")
     with open(manifest_path, "w") as fh:
         json.dump(manifest, fh, indent=1, ensure_ascii=False)

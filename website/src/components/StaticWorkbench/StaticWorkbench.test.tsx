@@ -6,15 +6,15 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Window } from "happy-dom";
 import { describe, expect, it } from "vitest";
 import { StaticWorkbench, StaticWorkbenchIntro } from "./StaticWorkbench";
-import { staticGallery, staticSynth, staticMap, staticWordArt, staticLoader } from "../../services/static-workbench/scenes";
+import { staticFluid, staticGallery, staticSynth, staticMap, staticWordArt, staticLoader } from "../../services/static-workbench/scenes";
 import { staticCharts } from "../../features/charts/render/staticCharts";
 import { staticDiagrams } from "../../features/diagrams/render/staticDiagrams";
 import { LOADER_SIZES } from "../../features/loaders/model/loaders";
 import type { StaticWorkbenchPage } from "./StaticPanels";
 
-const pages = ["gallery", "synth", "maps", "wordart", "loaders", "charts", "diagrams"] as const;
-const renderers = { gallery: staticGallery, synth: staticSynth, maps: staticMap, wordart: staticWordArt, loaders: staticLoader };
-const railIds = { gallery: "gallery-models-panel", synth: "synth-voices-panel", maps: "maps-layers-panel", wordart: "wa-compose-panel", loaders: "loaders-voices-panel", charts: "charts-data-panel", diagrams: "diagrams-source-panel" };
+const pages = ["gallery", "synth", "maps", "wordart", "loaders", "charts", "diagrams", "fluid"] as const;
+const renderers = { gallery: staticGallery, synth: staticSynth, maps: staticMap, wordart: staticWordArt, loaders: staticLoader, fluid: staticFluid };
+const railIds = { gallery: "gallery-models-panel", synth: "synth-voices-panel", maps: "maps-layers-panel", wordart: "wa-compose-panel", loaders: "loaders-voices-panel", charts: "charts-data-panel", diagrams: "diagrams-source-panel", fluid: "fluid-examples-panel" };
 
 function assertShell(document: Document, page: StaticWorkbenchPage) {
   const root = document.querySelector(`[data-static-workbench="${page}"]`)!;

@@ -1,5 +1,5 @@
 import { getCollection } from "astro:content";
-import { staticSynth } from "../../services/static-workbench/scenes";
+import { staticFluid, staticSynth } from "../../services/static-workbench/scenes";
 import {
   socialBench,
   socialEarth,
@@ -21,6 +21,7 @@ export async function GET() {
     agents: [await socialAgents()],
     maps: [await socialEarth()],
     synth: [socialGrid(staticSynth())],
+    fluid: [socialGrid(await staticFluid(72, 30))],
     loaders: socialLoaders(),
     ...socialDocsSections(),
     ...renders,

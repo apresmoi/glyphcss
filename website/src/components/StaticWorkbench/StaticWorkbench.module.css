@@ -35,6 +35,9 @@
 .wordart .render {
   font-size: 16px;
 }
+.fluid .render {
+  font-size: clamp(5px, 0.75vw, 11px);
+}
 .loaders .render {
   font-size: inherit;
 }

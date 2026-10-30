@@ -15,7 +15,7 @@ import {
   isGlyphAtlasEncodable,
 } from "./cells";
 import type { CellGrid } from "./cells";
-import { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
+import { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, GLYPH_FONT_ATLAS_BRAILLE_DOTS, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
 import { resolveGlyphAtlasHistogramResolver, resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
 import { beginGlyphVertexPass, resolveGlyphVertexIndex } from "./vertexIndex";
 
@@ -1253,10 +1253,10 @@ const wireframePaletteAtlasEncodableCache = new Map<string, boolean>();
  * exactly as atlas-encodable as before — see AGENTS.md's `colorEncoding`
  * section.
  *
- * Memoized per (atlas family, palette name, junctions) against the two
- * checked-in atlases ({@link GLYPH_FONT_ATLAS} and
- * {@link GLYPH_FONT_ATLAS_ASCII}) — all page-scoped configuration, not
- * per-frame state, and neither checked-in atlas changes at runtime. A
+ * Memoized per (atlas family, palette name, junctions) against the three
+ * checked-in atlases ({@link GLYPH_FONT_ATLAS}, {@link GLYPH_FONT_ATLAS_ASCII}
+ * and {@link GLYPH_FONT_ATLAS_BRAILLE_DOTS}) — all page-scoped configuration, not
+ * per-frame state, and no checked-in atlas changes at runtime. A
  * caller passing any other `atlas` (tests only) bypasses the cache so a
  * fixture atlas can never poison it.
  */
@@ -1266,7 +1266,7 @@ function isWireframePaletteAtlasEncodable(
   wireframeJunctions: boolean,
   atlas: GlyphFontAtlas,
 ): boolean {
-  const cacheable = atlas === GLYPH_FONT_ATLAS || atlas === GLYPH_FONT_ATLAS_ASCII;
+  const cacheable = atlas === GLYPH_FONT_ATLAS || atlas === GLYPH_FONT_ATLAS_ASCII || atlas === GLYPH_FONT_ATLAS_BRAILLE_DOTS;
   // "\n" can't appear in a `glyphPalette` name (a plain identifier string) or
   // a font family, so it's a safe join separator for the (atlas family, name,
   // junctions) composite key.

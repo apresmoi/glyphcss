@@ -1,0 +1,79 @@
+{
+  "name": "@glyphcss/fluid",
+  "version": "0.3.1",
+  "description": "A living braille fluid as DOM text: DOM text, images and meshes condense out of it and melt back. One <pre>, one textContent write per frame, sim in a Web Worker.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "keywords": [
+    "glyphcss",
+    "ascii",
+    "braille",
+    "fluid",
+    "simulation",
+    "text-effects",
+    "web-worker"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apresmoi/glyphcss.git",
+    "directory": "packages/fluid"
+  },
+  "bugs": {
+    "url": "https://github.com/apresmoi/glyphcss/issues"
+  },
+  "homepage": "https://github.com/apresmoi/glyphcss/tree/main/packages/fluid#readme",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./reader": {
+      "types": "./dist/reader.d.ts",
+      "import": "./dist/reader.js",
+      "require": "./dist/reader.cjs"
+    },
+    "./worker": {
+      "types": "./dist/worker.d.ts",
+      "import": "./dist/worker.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "reader": [
+        "dist/reader.d.ts"
+      ],
+      "worker": [
+        "dist/worker.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "npm run typecheck && vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "glyphcss": "workspace:^",
+    "@glyphcss/core": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^4.1.11",
+    "happy-dom": "^20.7.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,0 +1,74 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── Viewport: the field fills the stage; each example's subject sits in it. ── */
+.root :global(.fluid-stage) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+/* The fluid draws these letters; the element only supplies their shape and box. */
+.root :global(.fluid-heading) {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  margin: 0;
+  transform: translateY(-50%);
+  color: transparent;
+  font-family: var(--gc-font-render);
+  font-size: clamp(56px, 13vw, 180px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-align: center;
+  user-select: none;
+}
+/* Image and mesh targets ink the box; the box itself stays invisible. */
+.root :global(.fluid-box) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+}
+.root :global(.fluid-box--image) {
+  width: min(80%, calc(80vh * var(--fluid-box-aspect, 1)));
+  aspect-ratio: var(--fluid-box-aspect, 1);
+}
+.root :global(.fluid-box--mesh) {
+  width: min(70%, 70vh);
+  aspect-ratio: 1;
+}
+.root :global(.fluid-zone) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(70%, 520px);
+  padding: var(--gc-space-4);
+  transform: translate(-50%, -50%);
+  color: var(--gc-text);
+  font-family: var(--gc-font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.root :global(.fluid-zone) p {
+  margin: 0;
+}
+/* The reader's host: square, centred; a circular surface when its shape is circle. */
+.root :global(.fluid-reader) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(80%, 80vh, 560px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+}
+.root :global(.fluid-reader--circle) {
+  border: 1px solid var(--gc-rule);
+  border-radius: 50%;
+  background: var(--gc-surface-deep);
+}

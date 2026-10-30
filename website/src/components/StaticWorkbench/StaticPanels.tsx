@@ -12,6 +12,7 @@ import { DEFAULT_LOADER, findLoader } from "../../features/loaders/model/loaders
 import { synthPatchOf } from "../../features/loaders/model/patches";
 import { DEFAULT_MAP_LIGHTING } from "../../features/maps/model/lighting";
 import { WORD_ART_DEFAULTS } from "../../features/wordart/model/urlState";
+import { FLUID_DEFAULTS, FLUID_HEADING_COLOR } from "../../features/fluid/model/fluidWorkbench";
 import {
   StaticChoice as Choice,
   StaticChoices as Choices,
@@ -22,9 +23,44 @@ import {
   StaticToggle as Toggle,
 } from "./StaticControls";
 
-export type StaticWorkbenchPage = "gallery" | "synth" | "maps" | "wordart" | "loaders" | "charts" | "diagrams";
+export type StaticWorkbenchPage =
+  | "gallery"
+  | "synth"
+  | "maps"
+  | "wordart"
+  | "loaders"
+  | "charts"
+  | "diagrams"
+  | "fluid";
 
 export function StaticPanels({ page }: { page: StaticWorkbenchPage }) {
+  if (page === "fluid") {
+    // The live Dock's first folders; without JavaScript there is no pipeline to read.
+    return (
+      <>
+        <Section title="Text target">
+          <Color label="Color" value={FLUID_HEADING_COLOR} />
+          <Slider label="Delay s" value={0} min={0} max={5} />
+          <Choices label="Visibility" value="always" options={{ always: "Always", viewport: "Viewport" }} />
+          <Toggle label="Condensed" value />
+        </Section>
+        <Section title="Fluid">
+          <Choices label="Shape" value="rect" options={{ rect: "Rect", circle: "Circle" }} />
+          <Choices label="Encoding" value={FLUID_DEFAULTS.encoding} options={{ atlas: "Atlas", mono: "Mono" }} />
+          <Choices label="FPS" value={String(FLUID_DEFAULTS.fps)} options={{ "60": "60", "30": "30" }} />
+          <Color label="Field color" value={FLUID_DEFAULTS.fieldColor} />
+          <Slider label="Field level" value={FLUID_DEFAULTS.fieldLevel} min={0} max={0.6} />
+        </Section>
+        <Section title="Pipeline">
+          <Text label="fps" value={FLUID_DEFAULTS.fps} />
+          <Text label="pipeline" value="–" />
+          <Text label="cols × rows" value="–" />
+          <Text label="step ms" value="–" />
+          <Text label="lit" value="–" />
+        </Section>
+      </>
+    );
+  }
   if (page === "charts" || page === "diagrams") {
     const diagrams = createGlyphDiagramsWorkbenchState();
     const charts = createChartsWorkbenchState();

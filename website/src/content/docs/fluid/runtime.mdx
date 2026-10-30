@@ -1,0 +1,71 @@
+---
+title: Runtime & performance
+description: How @glyphcss/fluid runs — the Web Worker pipeline, the 60 → 30 fps governor, reduced motion, encodings and measured per-frame costs.
+---
+
+## One frame
+
+```
+DOM targets ──measure()──► target frame (packed Float32Array)
+                                 │  + queued ops (impulse, push, kick, scroll)
+                                 ▼
+                 worker: ops → adopt targets → step → cells → encode
+                                 │
+                                 ▼
+             main: one <pre>.textContent write (+ palette <style> on repool)
+```
+
+- Targets read the DOM only when measured; each frame they compose into one packed buffer that moves to the worker by transfer and comes back for reuse.
+- The worker and the main-thread fallback run the same `GlyphFluidCore` step on the same inputs and draw identical frames: text, palette and palette generation. A real-browser check holds this over 600 frames.
+- The palette `<style>` is rewritten only when the pooled quantizer repools, never per frame. Its clock is simulation time, so a repool lands on the same frame in both pipelines.
+
+## Worker
+
+```ts
+createGlyphFluid(host);                                   // "auto": the package's worker
+createGlyphFluid(host, { worker: false });                // main thread
+import FluidWorker from "@glyphcss/fluid/worker?worker";  // Vite: bundle it yourself
+createGlyphFluid(host, { worker: () => new FluidWorker() });
+```
+
+- The worker path is pipelined one frame deep: frame N draws the result posted at N − 1, then posts N. Input and target changes show one frame later.
+- It never has more than one step in flight. When the worker has not answered by the next vsync, the vsync is skipped (counted in `stats().stalls`), not queued.
+- If the worker cannot start or errors, the fluid continues on the main thread.
+
+## Frame rate
+
+`fps: 60` (default) drops to 30 for the rest of the session after a 60-frame window in which more than 20 % of vsyncs were missed. The drop is one-way; gaps over 250 ms (a background tab) count as idle, not as misses. `fps: 30` caps at 30 from the start; `fpsFallback: false` keeps 60.
+
+## Measured
+
+Apple M5 Pro (18 cores, 64 GB), macOS 26.5, Chrome 156, 1440 × 900 at DPR 1: the bench page's 144 × 66 grid with text and mesh targets and zones, idle, 6 s windows after 4 s warm-up (`bench/fluid/bench.mjs --setups desktop --throttle 1,4`).
+
+| CPU | Pipeline | Main-thread frame p50 / p95 | Main thread busy | Step (sim + cells + encode) | Missed vsyncs |
+|---|---|---|---|---|---|
+| ×1 | main | 5.0 / 5.4 ms | 31 % | 3.4 ms | 0 % |
+| ×1 | worker | 1.7 / 2.2 ms | 11 % | 3.5 ms (in the worker) | 0 % |
+| ×4 throttle | main | 20.4 / 22.9 ms | 100 % | 13.5 ms | 19.7 % |
+| ×4 throttle | worker | 6.6 / 8.4 ms | 42 % | 3.3 ms (in the worker) | 0 % |
+
+The worker takes the step off the main thread; what remains there is composing targets and the one text write (style + layout about 0.6 ms at ×1, 2.2 ms at ×4). At ×4 on the main thread the fluid misses about a fifth of its vsyncs, just under the 30 fps threshold.
+
+## Reduced motion
+
+Under `prefers-reduced-motion: reduce` the default `reducedMotion: "settle"` runs on the main thread with no impulses or kicks and draws one still frame per change (targets, zones, layout, scroll — and each [reader](/fluid/reader) word). Each still is run forward until every cell is within 0.02 of its target (capped at 120 steps), not until the grid-wide mean error is small, so a small target is not shown half-formed while the rest of the grid has settled. `reducedMotion: "animate"` ignores the preference.
+
+## Encodings
+
+| `encoding` | Draws |
+|---|---|
+| `"atlas"` (default) | Per-cell colour through glyphcss's colour-font atlas and a pooled `@font-palette-values` palette. |
+| `"mono"` | The atlas in one colour. |
+| `"plain"` (automatic fallback) | Real braille code points in one CSS colour when the atlas font fails to load or `font-palette` is unsupported. Blank cells are U+2800, not spaces, so the grid never shears. |
+
+`face` picks the atlas font. `"dots"` (default) uses glyphcss's braille-dots atlas, which draws dot rectangles exactly where a canvas renderer would at `cellAspect` 1.6; it is a separate ~37 KB font, loaded only when a fluid uses it. `"universal"` uses glyphcss's universal atlas, whose braille spans a whole text line, so at 1.6 the dot rows bunch across cell boundaries.
+
+## Clock and grid
+
+- `clock: "manual"` draws only on `fluid.step(dt)` — for tests, recordings and hosts that own their frame loop.
+- `glue: "document"` makes the host a fixed, viewport-sized layer whose fluid scrolls with the page by whole rows; scrolled-in rows start as still field.
+- `grid` sets the lattice: `targetCols` (default 144) within `minCellPx`–`maxCellPx` per cell, `cellAspect` 1.6, `maxCols` 176.
+- `shape: "circle"` keeps a circular surface: the disc inscribed in the host, a circle in a square host.
