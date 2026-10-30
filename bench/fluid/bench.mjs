@@ -1,7 +1,7 @@
 // Real-time perf of the @glyphcss/fluid bench page — the spike's bench.mjs (feat/fluid,
 // bench/fluid-spike) pointed at the package: same setups, scenarios and trace analysis.
 // node bench.mjs <out.json> [--warm s] [--secs s] [--setups a,b] [--throttle 1,4]
-//                [--fps 30|60] [--configs atlas,atlas+w] [--scenarios idle,stirred] [--creatures off]
+//                [--fps 30|60] [--configs atlas,atlas+w] [--scenarios idle,stirred] [--meshes off]
 //                [--face dots|universal]
 // "atlas" = main-thread pipeline (?worker=0), "atlas+w" = worker pipeline.
 // "stirred" holds the pointer down and drags it along a Lissajous path for the whole window.
@@ -26,7 +26,7 @@ const scenarios = opt("scenarios", "idle").split(",");
 const FPS = Number(opt("fps", 60));
 const query = (c) => `fps=${FPS}&worker=${c.includes("+w") ? 1 : 0}`;
 const throttles = opt("throttle", "1,4").split(",").map(Number);
-const creatures = opt("creatures", "on");
+const meshes = opt("meshes", "on");
 const face = opt("face", "dots");
 
 const MAIN_RENDER = new Set(["UpdateLayoutTree", "Layout", "PrePaint", "Paint", "Layerize", "Commit", "ParseHTML"]);
@@ -71,7 +71,7 @@ function analyse(events, wallMs) {
   const marks = events.filter((e) => e.name === "fluid-draw" && `${e.pid}:${e.tid}` === mainKey).map((e) => e.ts);
   const drew = (f) => (marks.length ? marks.some((t) => t >= f.ts && t <= f.ts + f.dur) : f.dur >= 300);
   const frameCost = [];
-  // This page runs two rAF callbacks per frame (the fluid's and the page's creature clock), so a
+  // This page runs two rAF callbacks per frame (the fluid's and the page's mesh clock), so a
   // drawn frame spans from the fluid's callback to the end of the frame's Commit: every rAF
   // callback in that window plus the rendering update, not just up to the next callback.
   const commits = main.filter((e) => e.name === "Commit");
@@ -120,7 +120,7 @@ for (const s of setups) {
       const cdp = await ctx.newCDPSession(p);
       await cdp.send("Performance.enable");
       if (thr > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: thr });
-      await p.goto(`http://127.0.0.1:${process.env.FLUID_BENCH_PORT ?? 4361}/?${query(v)}&hud=0&creatures=${creatures}&face=${face}`);
+      await p.goto(`http://127.0.0.1:${process.env.FLUID_BENCH_PORT ?? 4361}/?${query(v)}&hud=0&meshes=${meshes}&face=${face}`);
       await p.waitForFunction(() => window.__fluid, null, { timeout: 30000 });
       await p.waitForTimeout(WARM * 1000);
       const m0 = Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]));
@@ -164,7 +164,7 @@ for (const s of setups) {
       const dm = (k) => ((m1[k] - m0[k]) * 1000) / (m1.Timestamp - m0.Timestamp) / 1000; // s per s
       const trace = analyse(events, wall);
       const r = {
-        setup: s, throttle: thr, variant: v, config: v, scenario, fps: FPS, moves, creatures, wallMs: wall, stats, trace,
+        setup: s, throttle: thr, variant: v, config: v, scenario, fps: FPS, moves, meshes, wallMs: wall, stats, trace,
         metrics: {
           taskPct: dm("TaskDuration") * 100, scriptPct: dm("ScriptDuration") * 100,
           stylePct: dm("RecalcStyleDuration") * 100, layoutPct: dm("LayoutDuration") * 100,

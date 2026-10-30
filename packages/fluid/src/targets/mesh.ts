@@ -1,10 +1,10 @@
 // A mesh → ink, rasterised by glyphcss itself (no WebGL). Two `compileScene` passes on a
-// 2W × 2H grid, as the reference's CreatureTarget did with three.js offscreen: unlit albedo, then
+// 2W × 2H grid, as an offscreen three.js raster would: unlit albedo, then
 // a white Lambert pass for the light term. Read back at 2 × 2 samples per cell into
 // coverage, shaded colour and luminance; very dark covered cells become FEATURES (eyes,
 // mouth — in a dot field dark reads as empty and would erase the face); luminance is
 // auto-exposed over the covered range. The target box is an inscribed ellipse, like the
-// creature's round panel.
+// round panel.
 import { compileScene, type CompileSceneOptions, type GlyphCamera, type Polygon } from "glyphcss";
 import type { Vec3 } from "@glyphcss/core";
 import { glyphFluidShadeInk, mergeGlyphFluidCells } from "./raster";

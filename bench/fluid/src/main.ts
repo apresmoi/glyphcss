@@ -1,23 +1,17 @@
 // a landing-page fluid, rebuilt on @glyphcss/fluid (the spike page on the
 // `feat/fluid` branch, bench/fluid-spike, ported to the package). Headings are text
-// targets, prose is quiet zones, the pool is a pool zone, and each creature slot is a mesh
-// target fed by the cute kit's three.js rig (three is only the animation rig here: the
-// package rasterises the posed triangles with glyphcss).
+// targets, prose is quiet zones, the pool is a pool zone, and each mesh slot is a mesh
+// target fed a spinning solid, re-rasterised with glyphcss every frame.
 //
-// Query: ?worker=0 (main thread) · ?fps=30|60 · ?creatures=off · ?hud=0
-import * as THREE from "three";
+// Query: ?worker=0 (main thread) · ?fps=30|60 · ?meshes=off · ?hud=0
 import { createGlyphFluid, GlyphFluidTargets, type GlyphFluidTarget } from "@glyphcss/fluid";
 import { createGlyphOrthographicCamera, type Polygon } from "glyphcss";
-import { CuteCreature } from "../vendor/creatures/cute/kit.js";
-import { CUTE_CATALOG } from "../vendor/creatures/cute/index.js";
-import { MoodEngine } from "../vendor/creatures/mood.js";
 
 const q = new URLSearchParams(location.search);
 const FPS = Number(q.get("fps") ?? 60) === 30 ? 30 : 60;
 const WORKER = q.get("worker") !== "0";
-const CREATURES = q.get("creatures") !== "off";
+const MESHES = q.get("meshes") !== "off";
 const FACE = q.get("face") === "universal" ? "universal" : "dots";
-const DANCE: Array<[string, number]> = [["idle", 1.6], ["happy", 3.2], ["idle", 1.8], ["surprised", 1.0], ["happy", 3.6], ["listening", 1.8]];
 
 const host = document.getElementById("fluid")!;
 const fluid = createGlyphFluid(host, {
@@ -34,99 +28,69 @@ for (const el of document.querySelectorAll<HTMLElement>("[data-fluid-word]"))
 for (const el of document.querySelectorAll<HTMLElement>("[data-fluid-quiet]")) fluid.addZone({ el, kind: "quiet" });
 for (const el of document.querySelectorAll<HTMLElement>("[data-fluid-pool]")) fluid.addZone({ el, kind: "pool" });
 
-/** One creature slot: the cute-kit rig posed by a MoodEngine, framed like the reference's CreatureTarget. */
-class CreatureSlot {
-  creature: CuteCreature | null = null;
-  engine = new MoodEngine();
-  cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
-  camera = createGlyphOrthographicCamera({ useMat: true, mat: [1, 0, 0, 0, 1, 0, 0, 0, 1] });
-  keyDir: [number, number, number];
+type V3 = [number, number, number];
+
+/** A parametric surface as triangles: u runs around (closed), v from one pole/ring to the next. */
+function surface(nu: number, nv: number, at: (u: number, v: number) => V3, closedV: boolean): V3[][] {
+  const out: V3[][] = [];
+  for (let i = 0; i < nu; i++)
+    for (let j = 0; j < nv; j++) {
+      const a = at(i / nu, j / nv), b = at((i + 1) / nu, j / nv), c = at((i + 1) / nu, (j + 1) / nv), d = at(i / nu, (j + 1) / nv);
+      if (closedV || j > 0) out.push([a, b, c]);
+      if (closedV || j < nv - 1) out.push([a, c, d]);
+    }
+  return out;
+}
+
+/** Smooth solids, so the shading has a gradient the mesh target can turn into ink. Rebuilt and spun every frame. */
+const SHAPES: Record<string, V3[][]> = {
+  sphere: surface(28, 18, (u, v) => {
+    const t = u * Math.PI * 2, p = v * Math.PI;
+    return [1.3 * Math.sin(p) * Math.cos(t), 1.3 * Math.sin(p) * Math.sin(t), 1.3 * Math.cos(p)];
+  }, true),
+  torus: surface(32, 16, (u, v) => {
+    const t = u * Math.PI * 2, p = v * Math.PI * 2, r = 1 + 0.45 * Math.cos(p);
+    return [r * Math.cos(t), r * Math.sin(t), 0.45 * Math.sin(p) + 0.3 * Math.sin(t * 2)];
+  }, true),
+};
+const COLORS: Record<string, string> = { sphere: "#3ccf96", torus: "#f2a65a" };
+
+/** One mesh slot: a spinning solid fed to a mesh target. */
+class MeshSlot {
+  camera = createGlyphOrthographicCamera({ rotX: 60, rotY: 0 });
   target: GlyphFluidTarget | null = null;
   ids: string[];
+  id = "sphere";
   idx = -1;
+  spin = 0;
   last = performance.now();
-  danceI = 0;
-  danceT = 0;
-  hopT = 0;
-  half = 1;
-  private v = new THREE.Vector3();
 
   constructor(private el: HTMLElement) {
-    this.ids = (el.dataset.fluidCreature ?? "").split(",").filter(Boolean);
-    const d = new THREE.Vector3(0.5, 1, 1).normalize();
-    this.keyDir = [d.x, d.y, d.z];
+    this.ids = (el.dataset.fluidMesh ?? "").split(",").filter(Boolean);
   }
 
   show(id: string) {
-    const entry = CUTE_CATALOG.find((c: { id: string }) => c.id === id);
-    if (!entry) return;
-    this.creature?.dispose();
-    this.creature = new CuteCreature(entry);
-    this.frame(this.creature.envelope);
-    this.danceI = 0;
-    this.danceT = 0;
-    this.engine.set(DANCE[0]![0]);
-    const extent = 2 * this.half;
     if (this.target) this.target.remove();
+    this.id = id;
+    this.shape = SHAPES[id]!;
     this.target = fluid.addTarget(GlyphFluidTargets.mesh(this.el, {
-      polygons: () => this.polygons(), camera: this.camera, extent,
-      light: { direction: this.keyDir, intensity: 1 }, ambient: 0.4, visibility: "viewport",
+      polygons: () => this.polygons(), camera: this.camera, extent: 3.6,
+      light: { direction: [-0.5, 0.5, 0.7], intensity: 1 }, ambient: 0.4, features: false, visibility: "viewport",
     }));
   }
-
-  /** The reference CreatureTarget._frame: fit the motion envelope's hull into the round panel. */
-  frame(env: { min: THREE.Vector3; max: THREE.Vector3; rise?: number }) {
-    const STD = { min: [-0.36, 0, -0.36], max: [0.36, 1.26, 0.36] };
-    const lo = [Math.min(env.min.x, STD.min[0]!), 0, Math.min(env.min.z, STD.min[2]!)];
-    const hi = [Math.max(env.max.x, STD.max[0]!), Math.max(env.max.y, STD.max[1]!), Math.max(env.max.z, STD.max[2]!)];
-    const rx = Math.max(-lo[0]!, hi[0]!), rz = Math.max(-lo[2]!, hi[2]!), restTop = hi[1]! - (env.rise || 0), pts: THREE.Vector3[] = [];
-    for (let i = 0; i < 16; i++) {
-      const a = (i / 16) * Math.PI * 2, cx = Math.cos(a) * rx, cz = Math.sin(a) * rz;
-      for (const [y, r] of [[lo[1]!, 0.75], [restTop * 0.55, 1], [hi[1]!, 0.55]]) pts.push(new THREE.Vector3(cx * r!, y, cz * r!));
-    }
-    const dir = new THREE.Vector3(0.38, 0.28, 1).normalize();
-    const target = new THREE.Vector3(0, (lo[1]! + hi[1]!) / 2 - 0.03, 0);
-    this.cam.position.copy(target).addScaledVector(dir, 10);
-    this.cam.lookAt(target);
-    this.cam.updateMatrixWorld();
-    const inv = this.cam.matrixWorldInverse, vt = target.clone().applyMatrix4(inv), v = new THREE.Vector3();
-    let half = 0;
-    for (const c of pts) {
-      v.copy(c).applyMatrix4(inv).sub(vt);
-      half = Math.max(half, Math.hypot(v.x, v.y));
-    }
-    this.half = half * 0.98;
-    // three's view rotation as a glyphcss useMat camera; useMat applies `mat` to
-    // (v.y, v.x, v.z) — glyphcss.c's axis swap — so columns 0/1 swap, and screen y is down
-    const m = this.cam.matrixWorldInverse.elements;
-    this.camera.mat = [m[4]!, m[0]!, m[8]!, -m[5]!, -m[1]!, -m[9]!, m[6]!, m[2]!, m[10]!];
-    this.camera.target = [target.x, target.y, target.z];
-  }
+  shape = SHAPES.sphere!;
 
   polygons(): Polygon[] {
-    const now = performance.now(), dt = Math.min(1 / 30, (now - this.last) / 1000);
+    const now = performance.now();
+    this.spin += Math.min(1 / 30, (now - this.last) / 1000);
     this.last = now;
-    const c = this.creature!;
-    c.update(dt, this.engine.update(dt));
-    const out: Polygon[] = [], v = this.v;
-    c.root.updateMatrixWorld(true);
-    c.root.traverseVisible((o: THREE.Object3D) => {
-      const mesh = o as THREE.Mesh;
-      if (!mesh.isMesh) return;
-      const color = "#" + (mesh.material as THREE.MeshLambertMaterial).color.getHexString();
-      const pos = mesh.geometry.getAttribute("position"), idx = mesh.geometry.getIndex();
-      const n = idx ? idx.count : pos.count;
-      const at = (i: number): [number, number, number] => {
-        v.fromBufferAttribute(pos, idx ? idx.getX(i) : i).applyMatrix4(mesh.matrixWorld);
-        return [v.x, v.y, v.z];
-      };
-      for (let i = 0; i + 2 < n; i += 3) out.push({ vertices: [at(i), at(i + 1), at(i + 2)], color });
-    });
-    return out;
+    const c = Math.cos(this.spin), n = Math.sin(this.spin);
+    const rot = ([x, y, z]: [number, number, number]): [number, number, number] => [x * c - y * n, x * n + y * c, z];
+    return this.shape.map((t) => ({ vertices: t.map(rot), color: COLORS[this.id]! }));
   }
 
-  /** Page clock: cycle creatures (melt for the last 1.6 s of each period), dance, hop. */
-  tick(t: number, dt: number) {
+  /** Page clock: cycle shapes (melt for the last 1.6 s of each period). */
+  tick(t: number) {
     const delay = Number(this.el.dataset.fluidDelay ?? 0), every = Number(this.el.dataset.fluidEvery ?? 0);
     if (t < delay || !this.ids.length) return;
     const k = every ? (t - delay) / every : 0;
@@ -138,23 +102,10 @@ class CreatureSlot {
     }
     if (off) this.target?.melt();
     else this.target?.condense();
-    this.danceT += dt;
-    if (this.danceT > DANCE[this.danceI]![1]) {
-      this.danceI = (this.danceI + 1) % DANCE.length;
-      this.danceT = 0;
-      this.engine.set(DANCE[this.danceI]![0]);
-    }
-    if (DANCE[this.danceI]![0] !== "happy" || off) return;
-    this.hopT += dt;
-    if (this.hopT > 0.476) {
-      this.hopT = 0;
-      const r = this.el.getBoundingClientRect();
-      fluid.impulse(r.left + r.width / 2, r.top + r.height * 0.81, { strength: 0.55, radius: 0.03 });
-    }
   }
 }
 
-const slots = CREATURES ? [...document.querySelectorAll<HTMLElement>("[data-fluid-creature]")].map((el) => new CreatureSlot(el)) : [];
+const slots = MESHES ? [...document.querySelectorAll<HTMLElement>("[data-fluid-mesh]")].map((el) => new MeshSlot(el)) : [];
 
 // ---- bench instrumentation: drawn frames are marked from a MutationObserver on the <pre>,
 // which fires at the microtask checkpoint inside the drawing rAF task
@@ -172,7 +123,7 @@ const pageTick = (now: number) => {
   requestAnimationFrame(pageTick);
   const dt = Math.min(0.1, (now - lastT) / 1000);
   lastT = now;
-  for (const s of slots) s.tick((now - t0) / 1000, dt);
+  for (const s of slots) s.tick((now - t0) / 1000);
 };
 requestAnimationFrame(pageTick);
 

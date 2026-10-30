@@ -1,7 +1,7 @@
 // Draw the fluid as monospace glyphs on a black round panel.
 // glyph   = ramp[round(view · (len−1))]; fast-moving ink shows a STREAMLINE stroke
 //           (- \ | /) along its velocity instead, so flow is visible as flow
-// colour  = palette ramp by brightness (mono) or the advected creature colour (pastel),
+// colour  = palette ramp by brightness (mono) or the advected target colour (pastel),
 //           mixed toward the accent by the advected accent channel (ORP letter)
 
 import { strokeAlong, strokeFor } from './synth.js';
@@ -14,7 +14,7 @@ export const PALETTES = {
 
 const PANEL = 412;
 
-// ---- tunables (the firmware port reads these as #defines) ----
+// ---- tunables ----
 const R = {
   EDGE_RANGE: 0.16,   // sub-sample spread that makes a cell a contour cell
   EDGE_MIN: 0.3,      // …but only where something solid is there (faint field stays dithered)

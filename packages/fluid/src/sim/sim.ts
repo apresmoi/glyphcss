@@ -1,5 +1,5 @@
 // TypeScript transliteration of the reference fluid (`reference/fluid/sim.js`).
-// The same step runs as C on the reference's firmware, so this file is a transliteration, not a
+// This file is a transliteration, not a
 // rewrite: same fields, same loop order, same arithmetic order. `sim.parity.test.ts`
 // steps both on seeded inputs and requires every Float32 field to match bit for bit.
 //
@@ -14,7 +14,7 @@
 // A = cellH / cellW so ripples and eddies are round on screen.
 import { noise3 } from "./noise";
 
-/** Sim tunables; the firmware port reads these as `#define`s. */
+/** Sim tunables. */
 export interface GlyphFluidTuning {
   /** Wave speed². */
   c2: number;
@@ -91,7 +91,7 @@ export class GlyphFluidSim {
   osc = { amp: 0, freq: 4, x: 0, y: 0, phase: 0 };
   vibe = { amp: 0, freq: 9, phase: 0 };
   sheet = { amp: 0, freq: 1.5, phase: 0 };
-  /** > 0 while a target supplies feature cells (creature eyes/mouth). */
+  /** > 0 while a target supplies feature cells (e.g. eyes/mouth). */
   edgeW = 0;
   t = 0;
   err = 1;

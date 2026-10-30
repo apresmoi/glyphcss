@@ -16,7 +16,7 @@ export interface GlyphFluidTargetFrame {
   TR: Float32Array;
   TG: Float32Array;
   TB: Float32Array;
-  /** Feature cells (creature eyes/mouth): drawn as a solid 8-dot block once the shape holds. */
+  /** Feature cells (e.g. eyes/mouth): drawn as a solid 8-dot block once the shape holds. */
   TF: Float32Array;
   /** Background-floor multiplier (zones). */
   BGM: Float32Array;

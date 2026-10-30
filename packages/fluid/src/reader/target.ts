@@ -1,5 +1,5 @@
-// The reader's word target: the reference's speed-text target (`creatures/js/fluid/targets.js`,
-// TextTarget) over the fluid's host box, in both of its looks:
+// The reader's word target: the speed-text target (TextTarget)
+// over the fluid's host box, in both of its looks:
 //   "plain" (website default): the fluid pools into a band under the word, and
 //     real letters (`letters.ts`, DOM text over the <pre>) condense out of it once
 //     enough ink has arrived under each one; the sim blanks the cells under shown letters.

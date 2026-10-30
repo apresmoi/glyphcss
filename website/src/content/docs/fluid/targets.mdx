@@ -37,7 +37,7 @@ fluid.addTarget(GlyphFluidTargets.image(imageData, { x: 40, y: 600, width: 320, 
 import { createGlyphOrthographicCamera } from "glyphcss";
 
 fluid.addTarget(GlyphFluidTargets.mesh(el, {
-  polygons: () => creature.polygons(),   // read every frame: animate by returning new vertices
+  polygons: () => model.polygons(),   // read every frame: animate by returning new vertices
   camera: createGlyphOrthographicCamera({ rotX: -20, rotY: 30 }),
   extent: 2.4,                           // world units across the target; owns camera.zoom
 }));

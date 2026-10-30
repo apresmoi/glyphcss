@@ -14,7 +14,6 @@ const alias = {
   "@glyphcss/fluid": resolve(root, "packages/fluid/src/index.ts"),
   glyphcss: resolve(root, "packages/glyphcss/src/index.ts"),
   "@glyphcss/core": resolve(root, "packages/core/src/index.ts"),
-  three: resolve(root, "node_modules/three/build/three.module.js"),
 };
 const page = (entry, out) => ({
   entryPoints: [resolve(here, entry)], outfile: resolve(here, out),

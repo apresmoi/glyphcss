@@ -1,6 +1,6 @@
-// the reference's speed-reader rules (`reference/fluid/reader.js`), shared with the device
-// firmware (`mole_fluid.c`): same heuristic, no dictionary. `rules.parity.test.ts` holds
-// this file to the reference on a corpus; change both (and the firmware) or neither.
+// Speed-reader rules (mirroring `reference/fluid/reader.js`):
+// same heuristic, no dictionary. `rules.parity.test.ts` holds
+// this file to the reference on a corpus; change both (and the reference) or neither.
 //   ORP:   strip leading/trailing non-alnum → core; bucket core length
 //          ≤1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, ≥14 → 4; focal = coreStart + bucket.
 //   delay: max(40, 60000/wpm × long × punc), rounded

@@ -1,5 +1,5 @@
-// Speed-reader rules, shared with the device (firmware/main/fluid/mole_fluid.c)
-// (same heuristic as the device, no dictionary):
+// Speed-reader rules
+// (a simple heuristic, no dictionary):
 //   ORP: strip leading/trailing non-alnum → core; bucket core length
 //        ≤1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, ≥14 → 4; focal = coreStart + bucket.
 //   delay = max(40, 60000/wpm × long × punc)

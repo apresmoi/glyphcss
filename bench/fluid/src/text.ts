@@ -6,7 +6,7 @@ import { GlyphFluidTargets, createGlyphFluidTargetFrame } from "@glyphcss/fluid"
 
 const LAYOUT = { cw: 6, ch: 9.6, originX: 0, originY: 0 };
 document.body.innerHTML = `
-  <h1 id="a" style="width:260px;font:700 44px/1.1 sans-serif;margin:20px">liquid ascii creatures wrap here</h1>
+  <h1 id="a" style="width:260px;font:700 44px/1.1 sans-serif;margin:20px">liquid ascii text wraps here</h1>
   <p id="b" style="font:24px monospace;margin:20px">one line<br>second line</p>
   <p id="d" style="width:120px;word-break:break-all;font:700 28px monospace;margin:20px">abcdefghijklmnopqrstuvwx</p>
   <h2 id="c" style="width:500px;text-align:center;font:600 32px serif;margin:20px">centred <span style="font:italic 32px monospace">mixed</span> words</h2>`;

@@ -1,6 +1,6 @@
-// The reader rules must match the reference's vendored reader.js exactly (the firmware applies the
-// same rules in C). A corpus of hand-picked edge cases plus seeded random words; each
-// planted-bug case proves the comparison would catch a one-character slip.
+// The reader rules must match the vendored reference reader.js exactly. A corpus of
+// hand-picked edge cases plus seeded random words; each planted-bug case proves the
+// comparison would catch a one-character slip.
 import { describe, expect, it } from "vitest";
 import * as ref from "../../../reference/fluid/reader.js";
 import { glyphReaderOrp, glyphReaderWordDelay, tokenizeGlyphReaderText, type GlyphReaderToken } from "./words";

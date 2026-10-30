@@ -23,7 +23,7 @@
 
 import { noise3 } from './synth.js';
 
-// ---- tunables (the firmware port reads these as #defines) ----
+// ---- tunables ----
 export const SIM_TUNING = {
   c2: 0.11, damp: 0.975, leak: 0.985,        // wave speed², velocity damping, height leak
   attract: 70, drag: 2.6, vmax: 30,          // demand-flow gain, flow drag (1/s), speed cap (cells/s)
@@ -66,7 +66,7 @@ export class FluidSim {
     this.osc = { amp: 0, freq: 4, x: 0, y: 0, phase: 0 };  // audio-driven point oscillator
     this.vibe = { amp: 0, freq: 9, phase: 0 };              // global shimmer (motor / thinking hum)
     this.sheet = { amp: 0, freq: 1.5, phase: 0 };           // plane wave from the top rim
-    this.edgeW = 0;       // >0 while the target supplies an ink-contour field (creature)
+    this.edgeW = 0;       // >0 while the target supplies an ink-contour field
     this.t = 0; this.err = 1; this.energy = 0;
   }
 
@@ -141,7 +141,7 @@ export class FluidSim {
     const big = this.su; // reuse as scratch before swirl is written
     boxBlur(D, big, this.tmp, W, H, 7, Math.max(1, Math.round(7 / A)));
     // mobility: where the ink already matches its target the fluid HOLDS (no advection →
-    // no numerical diffusion → the creature keeps cell-sharp detail); where it doesn't,
+    // no numerical diffusion → the shape keeps cell-sharp detail); where it doesn't,
     // or right after a transition kick, it flows.
     const kickMob = Math.min(1, this.swirlKick * 0.12);
     for (let k = 0; k < N; k++) {

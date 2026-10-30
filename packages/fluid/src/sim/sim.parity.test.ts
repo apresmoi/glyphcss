@@ -1,5 +1,5 @@
-// The TS port must step bit-identically to the reference's vendored sim.js (the firmware runs the
-// same algorithm as C). Seeded inputs exercise every branch: targets with colour and
+// The TS port must step bit-identically to the vendored reference sim.js.
+// Seeded inputs exercise every branch: targets with colour and
 // accent, impulses, pushes, swirl kicks, rotation, the osc/vibe/sheet forcings, hold.
 import { describe, expect, it } from "vitest";
 import { FluidSim } from "../../reference/fluid/sim.js";
