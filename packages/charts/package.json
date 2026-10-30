@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/charts",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Render data and Mermaid as text charts for chat, terminals and web apps: ASCII, box-drawing and braille output with scales, axes and legends.",
   "type": "module",
   "main": "dist/index.cjs",

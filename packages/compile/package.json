@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/compile",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Compile 3D meshes, Mermaid diagrams and data charts to text or HTML with the glyphcss CLI, Node API and Vite plugin.",
   "type": "module",
   "main": "dist/index.cjs",

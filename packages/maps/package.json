@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/maps",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Geographic raster data → glyphcss. Deterministic sample/classify/compile pipeline for baking a georeferenced field to static ASCII, with zero runtime.",
   "type": "module",
   "main": "dist/index.cjs",
