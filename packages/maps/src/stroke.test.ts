@@ -450,3 +450,49 @@ describe("contour labels are inert under symbol-label wrapping", () => {
     }
   });
 });
+
+describe("stampGlyphMapPolyline — ink lands where the line crosses the cell or dot lattice", () => {
+  const flat = () => makeGrid(40, 12, () => 0);
+  const brailleRows = (offset: number): string[] => {
+    // A segment translated ALONG its own direction is the same line.
+    const dCol = 25, dRow = 5.5;
+    const grid = flat();
+    stampGlyphMapPolyline(grid, [
+      { col: 5.3 + offset * dCol, row: 2.2 + offset * dRow, depth: 0 },
+      { col: 30.3 + offset * dCol, row: 7.7 + offset * dRow, depth: 0 },
+    ], { color: "#fff", experimentalGlyphStrategy: "braille" });
+    // The end cells depend on where the segment stops, so compare the interior.
+    return Array.from({ length: 12 }, (_, r) => grid.char.slice(r * 40 + 9, r * 40 + 27).join(""));
+  };
+
+  it("braille: translating a segment along itself by less than a dot draws the identical dot pattern", () => {
+    const reference = brailleRows(0);
+    expect(reference.join("").replace(/[ ]/g, "").length).toBeGreaterThan(10);
+    for (const offset of [0.004, 0.009, 0.014]) expect(brailleRows(offset)).toEqual(reference);
+  });
+
+  it.each([
+    ["default ink", undefined],
+    ["braille", "braille" as const],
+  ])("%s: a stroke coplanar with a sloped surface is drawn at the depth of the point it inks, not of the walk's sample", (_name, strategy) => {
+    // depth[col, row] = col, so the surface under a cell centre is col + 0.5.
+    // Testing the walk's raw sample (up to half a cell from the ink) would
+    // read the line behind that surface and occlude all of it.
+    const grid = makeGrid(5, 4, (col) => col);
+    stampGlyphMapPolyline(grid, [
+      { col: 0.1, row: 1.5, depth: 0.1 },
+      { col: 3.1, row: 1.5, depth: 3.1 },
+    ], { color: "#fff", ...(strategy ? { experimentalGlyphStrategy: strategy } : {}) });
+    for (const col of [0, 1, 2]) expect(grid.char[1 * 5 + col], `column ${col}`).not.toBe(" ");
+  });
+
+  it("the line-glyph table is keyed on the grid's own cell aspect: tangent (1, 0.5) reads differently at aspect 2 and 1", () => {
+    const glyphAt = (cellAspect: number): string => {
+      const grid = makeGrid(9, 8, () => 0);
+      stampGlyphMapPolyline(grid, [{ col: 1.5, row: 2.5, depth: 0 }, { col: 7.5, row: 5.5, depth: 0 }], { color: "#fff", cellAspect });
+      return grid.char.join("");
+    };
+    expect(glyphAt(2).trim()).not.toBe("");
+    expect(glyphAt(2)).not.toBe(glyphAt(1));
+  });
+});
