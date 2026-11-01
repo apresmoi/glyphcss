@@ -14,8 +14,8 @@ Results are in [`RESULTS.md`](./RESULTS.md).
 
 ```bash
 pnpm install --frozen-lockfile && pnpm build:packages
-node bench/line-fidelity/run.mjs            # full run, ~10 min on 16 workers
-node bench/line-fidelity/run.mjs --quick    # lines every 10°, 1 wiggle, ~2 min
+node bench/line-fidelity/run.mjs            # full run, ~4 min on 16 workers
+node bench/line-fidelity/run.mjs --quick    # lines every 10°, 1 wiggle, ~1–2 min
 ```
 
 Flags:

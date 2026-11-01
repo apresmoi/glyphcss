@@ -74,6 +74,20 @@ export function writeReport(meta, results, file) {
   }
   p();
 
+  // ── Glyph positions ──
+  if (meta.glyphPositions) {
+    p("## Where the oriented glyphs really sit (line-height 1)");
+    p();
+    p("`inkGlyphForTangent` picks a horizontal glyph by the stroke's sub-row (‾ < 1/6 ≤ ▔ < 1/3 ≤ - < 2/3 ≤ _) and a vertical one by sub-column (▏ < 1/3 ≤ | < 2/3 ≤ ▕), from a Menlo census. Measured ink centroid and extent (R ≥ 0.3) in each site face, as fractions of the cell (row 0 = cell top, 1 = cell bottom):");
+    p();
+    p("| glyph | " + Object.keys(meta.glyphPositions).map((f) => `${f} centroid row / col · ink rows`).join(" | ") + " |");
+    p("|---|" + Object.keys(meta.glyphPositions).map(() => "---").join("|") + "|");
+    for (const g of Object.keys(meta.glyphPositions.atlas ?? {})) {
+      p(`| \`${g === "|" ? "\\|" : g}\` | ${Object.values(meta.glyphPositions).map((gp) => { const x = gp[g]; return x ? `${x.row.toFixed(2)} / ${x.col.toFixed(2)} · [${x.top.toFixed(2)}, ${x.bottom.toFixed(2)}]` : "–"; }).join(" | ")} |`);
+    }
+    p();
+  }
+
   // ── Headline ──
   // best-known(own) = per case, the best of: every current strategy sharing the vocabulary on that face, its table, its DP.
   const ownOf = (st) => (st.vocab === "wire" ? "all" : st.vocab);
@@ -235,7 +249,7 @@ export function writeReport(meta, results, file) {
   p();
   p("\\* cases where the DP's full-rubric total is worse than the current strategy that shares its vocabulary — the surrogate/pruning gap made visible (the oracle is a heuristic optimum, an upper bound on the true best, not a proof).");
   p();
-  p(`Pruning sensitivity (same DP, label sets widened from M = ${meta.M} to ${3 * meta.M}, on a fixed subset):`);
+  p(`Pruning sensitivity (same DP, label sets widened from M = ${meta.M} to ${3 * meta.M}, on a fixed subset). The ink vocabulary has only 37 labels per node, so it is never pruned and serves as a control:`);
   p();
   p("| face | vocab | cases | mean total M | mean total 3M | cases improved by 3M |");
   p("|---|---|---|---|---|---|");

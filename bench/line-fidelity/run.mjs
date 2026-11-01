@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Line-fidelity experiment: rasters → current strategies → table → DP oracle → RESULTS.md.
-//   node bench/line-fidelity/run.mjs [--quick] [--force-rasters] [--workers N] [--M 48]
+//   node bench/line-fidelity/run.mjs [--quick] [--force-rasters] [--workers N] [--M 48] [--report-only]
 // Needs `pnpm build:packages` first (strategies run from packages/*/dist).
 import os from "node:os";
 import path from "node:path";
@@ -20,7 +20,34 @@ const workers = Number(opt("--workers", Math.max(1, Math.min(16, os.cpus().lengt
 const M = Number(opt("--M", 48));
 
 const t0 = performance.now();
+
+/** Measured ink centroid / extent of the oriented line glyphs, in cell fractions (row from the cell top, col from its left). */
+function glyphPositions(fm) {
+  const out = {};
+  for (const g of "‾▔-─_▏|│▕/\\") {
+    const m = fm.masks.get(g);
+    if (!m) continue;
+    let s = 0, sx = 0, sy = 0, y0 = Infinity, y1 = -Infinity;
+    for (let i = 0; i < m.a.length; i++) {
+      const v = m.a[i], x = (i % m.W) + 0.5, y = Math.floor(i / m.W) + 0.5;
+      s += v; sx += v * x; sy += v * y;
+      if (v >= 0.3) { y0 = Math.min(y0, y - 0.5); y1 = Math.max(y1, y + 0.5); }
+    }
+    out[g] = { row: (sy / s - fm.padY) / fm.cellH, col: (sx / s - fm.padX) / fm.cellW, top: (y0 - fm.padY) / fm.cellH, bottom: (y1 - fm.padY) / fm.cellH, inkPerCw: s / fm.cellW };
+  }
+  return out;
+}
 const log = (...a) => console.log(`[${((performance.now() - t0) / 1000).toFixed(1)}s]`, ...a);
+
+if (flag("--report-only")) {
+  const { readJson } = await import("./common.mjs");
+  const { meta, results } = readJson(path.join(CACHE, "results.json"));
+  const recs = await buildRasters([...new Set([...extendedCandidates(), ...strategyGlyphs()])]);
+  meta.glyphPositions = Object.fromEntries(Object.keys(FACES).map((f) => [f, glyphPositions(loadMasks(recs[f]))]));
+  writeReport(meta, results, path.join(HERE, "RESULTS.md"));
+  log("rewrote RESULTS.md from .cache/results.json");
+  process.exit(0);
+}
 
 // 1. Rasters (cached) + compositing validation.
 const candidates = [...new Set([...extendedCandidates(), ...strategyGlyphs()])];
@@ -88,6 +115,7 @@ const meta = {
     glyphs: Object.fromEntries(Object.entries(r.glyphs).map(([g, x]) => [g, { safe: x.safe, reason: x.reason, ink: x.ink }])),
   }])),
   validation,
+  glyphPositions: Object.fromEntries(Object.keys(FACES).map((f) => [f, glyphPositions(faces[f])])),
   candidates: candidates.length,
   runtimeSec: (performance.now() - t0) / 1000,
 };
