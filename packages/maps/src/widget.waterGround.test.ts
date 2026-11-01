@@ -99,9 +99,9 @@ it.each(["braille", "box"] as const)("real Venice: %s land roads remain byte-ide
   await map.idle(); map.scene.rerender();
   const ink = cells(map).map(row => row.map(cell => cell.startsWith("#ff0000:") ? cell.split(":")[1] : " ").join("")).join("\n");
   expect(ink.replace(/\s/g, "").length).toBeGreaterThan(20);
-  // Captured by running this same fixture against 954164b3.
+  // Captured against 954164b3; the braille pin was re-captured for the dot-lattice snap (9 dot patterns changed, 1 line cell appeared at a line end, 24 identical, none outside the road ink).
   expect(createHash("sha256").update(ink).digest("hex")).toBe(strategy === "braille"
-    ? "9f3f010a73c464ae49dd9ba9bc2d15503fa23728991f0db833160d6211d5d426"
+    ? "028300808640fd6c93a222709f03fac2cbafcd65ffbe2cc5e67af803bd56db8f"
     : "221a07858c9ee78b18ab0a12f112d577c00bc017e7b04a765db614cd08f077f5");
 });
 
