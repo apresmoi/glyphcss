@@ -145,3 +145,36 @@ describe("line(): styled runs (mutation: ignore the requested style -> red)", ()
     expect(canvas.grid.char[3 * 4 + 3]).toBe("\\");
   });
 });
+
+describe("line(): a diagonal's glyph reads the offset within the cell `line()` assigns (cell c spans [c-0.5, c+0.5))", () => {
+  it("MUTATION CAUGHT: a shallow run through a row centre uses the centred glyph, not the cell-top overline ones", () => {
+    // y runs 0 -> 0.2 across row 0, so every sample sits 0.5-0.7 of the way
+    // down its cell: "-" then "_" past 2/3. The old `py - floor(py)` read the
+    // same samples as 0.0-0.2 from the top and emitted "‾‾‾‾‾".
+    const canvas = createGlyphCanvas({ cols: 5, rows: 1, tier: "box" });
+    canvas.line({ x: 0, y: 0 }, { x: 4, y: 0.2 }, { style: "solid" });
+    expect(encodeGlyphCanvasText(canvas)).toBe("----_");
+  });
+
+  it("MUTATION CAUGHT: a ~2 degree run steps _ -> (gap) -> overline -> upper-eighth -> - symmetrically about the row boundary", () => {
+    // Row 0 starts on its centre (offset 0.5 -> "-"), sinks to "_" at the
+    // bottom edge; row 1 picks up at its top edge ("‾") and rises to its
+    // centre ("-"). Hand-checked: col c in row 0 has offset 0.5 + c/28
+    // ("-" below 2/3, i.e. c <= 4); col c in row 1 has offset c/28 - 0.5
+    // ("‾" < 1/6, "▔" < 1/3, then "-").
+    const canvas = createGlyphCanvas({ cols: 29, rows: 2, tier: "box" });
+    canvas.line({ x: 0, y: 0 }, { x: 28, y: 1 }, { style: "solid" });
+    expect(encodeGlyphCanvasText(canvas)).toBe(
+      "-----__________              \n" + "              ‾‾‾‾‾▔▔▔▔▔-----",
+    );
+  });
+
+  it("a negative-coordinate run is offset against the cell the walk reports, not a re-derived one", () => {
+    // Same shallow slope, shifted so the walk spans cells -2..2 (clipped
+    // to the canvas, which starts at 0): cols 0..2 must match the tail of
+    // the unshifted run, i.e. offsets stay 0.5-0.7 -> "-", "-", "_".
+    const canvas = createGlyphCanvas({ cols: 3, rows: 1, tier: "box" });
+    canvas.line({ x: -2, y: 0 }, { x: 2, y: 0.2 }, { style: "solid" });
+    expect(encodeGlyphCanvasText(canvas)).toBe("--_");
+  });
+});

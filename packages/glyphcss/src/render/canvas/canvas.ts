@@ -848,8 +848,12 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
           // still goes through the TIER TABLE for every glyph, via
           // `tier.diagonal`, so an `ascii` canvas never emits the raw
           // (non-ASCII) ink vocabulary directly.
-          const subCol = px - Math.floor(px);
-          const subRow = py - Math.floor(py);
+          // `line()` centres cell `c` on integer `c`, so the cell spans
+          // `[c - 0.5, c + 0.5)`; `inkGlyphForTangent` wants the offset from
+          // that cell's top/left edge (0.5 = centre), measured against the
+          // walk's own cell, not a re-derived one.
+          const subCol = px + 0.5 - cx;
+          const subRow = py + 0.5 - cy;
           const rawInk = inkGlyphForTangent(dx, dy, subRow, subCol);
           baseGlyph = rawInk === "·" ? tierTable.dot : tierTable.diagonal[rawInk as GlyphCanvasDiagonalKey];
           if (style === "double" && !loggedDoubleDiagonal) {
