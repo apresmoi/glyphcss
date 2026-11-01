@@ -129,13 +129,15 @@ describe("stampGlyphMapPolyline — the reconstruction, the curvature allowance,
 
   it("draws a stroke behind the RIDGES of a rough surface — the faceting a coarsened relief mesh always has", () => {
     // The stroke follows the smooth trend the coarse mesh would carry while
-    // the surface carries the roughness, so it reads behind at every ridge
-    // cell, by 0.1x the local gradient against an allowance of 0.2x. That is
-    // the whole job of the curvature term: with the scale at 0 the four ridge
-    // cells go dark and this drops to 4.
+    // the surface carries the roughness, so it reads slightly behind at the
+    // cells it inks. That is the whole job of the curvature term: with the
+    // scale at 0 every cell goes dark. The line spans columns 1..8, so it
+    // crosses seven column centres (1.5..7.5): seven cells, not eight. Ink
+    // sits at those centres, where the reconstructed surface reads (c + 0.7)
+    // gradients, so the trend is offset by 0.18 to stay just behind it.
     const grid = rough(0.4 * GRADIENT);
-    stampGlyphMapPolyline(grid, line((col) => col * GRADIENT + 0.3 * GRADIENT), { color: "#fff" });
-    expect(nonEmptyCells(grid)).toBe(8);
+    stampGlyphMapPolyline(grid, line((col) => col * GRADIENT + 0.18 * GRADIENT), { color: "#fff" });
+    expect(nonEmptyCells(grid)).toBe(7);
   });
 
   it("still occludes a stroke genuinely behind that same surface — the allowance is bounded, not a licence", () => {
