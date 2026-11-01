@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { rasterize } from "./rasterize";
 import { buildRasterizeContext } from "../api/rasterizeContext";
 import { createGlyphPerspectiveCamera } from "../api/createGlyphCamera";
@@ -205,17 +205,10 @@ describe("rasterize — byte-identity guard: every pre-existing (mode, charMode)
   // `foldSubStampToCells` machinery turns this file red instead of silently
   // comparing the new code against itself.
   it("ascii wireframe (charMode absent) is byte-identical", () => {
-    // The ASCII wireframe glyph pick is itself randomized per cell — pin it
-    // so the snapshot is deterministic across runs (same approach every
-    // other charMode-isolation test in this file/`rasterize.braille.test.ts`
-    // /`rasterize.quadrant.test.ts` uses).
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    try {
-      const out = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "wireframe", useColors: false }));
-      expect(out).toMatchSnapshot();
-    } finally {
-      randomSpy.mockRestore();
-    }
+    // The glyph pick within a weight tier hashes the cell index, so the
+    // render is deterministic and the snapshot needs no pinning.
+    const out = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "wireframe", useColors: false }));
+    expect(out).toMatchSnapshot();
   });
   it("braille wireframe is byte-identical", () => {
     const out = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "wireframe", useColors: false, charMode: "braille" }));

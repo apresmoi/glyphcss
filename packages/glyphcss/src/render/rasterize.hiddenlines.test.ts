@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { rasterize } from "./rasterize";
 import { buildRasterizeContext } from "../api/rasterizeContext";
 import { getWireframeGlyphs } from "./ramps";
@@ -82,89 +82,74 @@ describe("rasterize — wireframe hidden-line removal (hiddenLines)", () => {
       mode: "wireframe" as const,
       useColors: true,
     };
-    // Per-cell glyph pick within a weight tier is itself randomized — pin it
-    // so this comparison isolates the option's effect only.
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    try {
-      const withoutOption = rasterize(buildRasterizeContext(base));
-      const explicitlyShow = rasterize(buildRasterizeContext({ ...base, hiddenLines: "show" }));
-      expect(explicitlyShow).toBe(withoutOption);
-    } finally {
-      randomSpy.mockRestore();
-    }
+    // The per-cell glyph pick within a weight tier is a hash of the cell
+    // index, so two renders of the same inputs compare directly.
+    const withoutOption = rasterize(buildRasterizeContext(base));
+    const explicitlyShow = rasterize(buildRasterizeContext({ ...base, hiddenLines: "show" }));
+    expect(explicitlyShow).toBe(withoutOption);
   });
 
   it('"show" (today\'s behavior): a farther edge with higher weight paints over a nearer one — the reported bug', () => {
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    try {
-      const ctx = buildRasterizeContext({
-        camera: passthroughCamera(),
-        grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
-        polygons: [surfaceQuad(1)],
-        // Front edge lies ON the surface (z=1); back edge is authored at z=0,
-        // clearly behind it, but has a HIGHER weight, exactly like a darker
-        // `sideColor` extrusion wall being thicker than the front contour.
-        wireframe: [
-          { from: [5, 5, 1], to: [5, 5, 1], weight: 2, color: "#00ff00" },
-          { from: [5, 5, 0], to: [5, 5, 0], weight: 3, color: "#ff0000" },
-        ],
-        mode: "wireframe",
-        useColors: true,
-        hiddenLines: "show",
-      });
-      const out = rasterize(ctx);
-      const cell = cellAt(out, 5, 5);
-      const glyphs = getWireframeGlyphs("default");
-      // Weight comparison alone decides the winner — the farther (z=0), higher
-      // weight edge overwrites the nearer (z=1) one.
-      expect(cell.color).toBe("#ff0000");
-      expect(cell.char).toBe(glyphs.core[0]);
-    } finally {
-      randomSpy.mockRestore();
-    }
+    const ctx = buildRasterizeContext({
+      camera: passthroughCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      polygons: [surfaceQuad(1)],
+      // Front edge lies ON the surface (z=1); back edge is authored at z=0,
+      // clearly behind it, but has a HIGHER weight, exactly like a darker
+      // `sideColor` extrusion wall being thicker than the front contour.
+      wireframe: [
+        { from: [5, 5, 1], to: [5, 5, 1], weight: 2, color: "#00ff00" },
+        { from: [5, 5, 0], to: [5, 5, 0], weight: 3, color: "#ff0000" },
+      ],
+      mode: "wireframe",
+      useColors: true,
+      hiddenLines: "show",
+    });
+    const out = rasterize(ctx);
+    const cell = cellAt(out, 5, 5);
+    const glyphs = getWireframeGlyphs("default");
+    // Weight comparison alone decides the winner — the farther (z=0), higher
+    // weight edge overwrites the nearer (z=1) one.
+    expect(cell.color).toBe("#ff0000");
+    expect(glyphs.core).toContain(cell.char);
   });
 
   it('"hide" depth-tests each stroke: the occluded back edge never touches the cell, so the front edge survives', () => {
-    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
-    try {
-      const build = (hiddenLines: "show" | "hide") => buildRasterizeContext({
-        camera: passthroughCamera(),
-        grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
-        polygons: [surfaceQuad(1)],
-        wireframe: [
-          { from: [5, 5, 1], to: [5, 5, 1], weight: 2, color: "#00ff00" },
-          { from: [5, 5, 0], to: [5, 5, 0], weight: 3, color: "#ff0000" },
-        ],
-        mode: "wireframe",
-        useColors: true,
-        hiddenLines,
-      });
+    const build = (hiddenLines: "show" | "hide") => buildRasterizeContext({
+      camera: passthroughCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      polygons: [surfaceQuad(1)],
+      wireframe: [
+        { from: [5, 5, 1], to: [5, 5, 1], weight: 2, color: "#00ff00" },
+        { from: [5, 5, 0], to: [5, 5, 0], weight: 3, color: "#ff0000" },
+      ],
+      mode: "wireframe",
+      useColors: true,
+      hiddenLines,
+    });
 
-      const hideOut = rasterize(build("hide"));
-      const showOut = rasterize(build("show"));
-      const glyphs = getWireframeGlyphs("default");
+    const hideOut = rasterize(build("hide"));
+    const showOut = rasterize(build("show"));
+    const glyphs = getWireframeGlyphs("default");
 
-      // Ground truth: the front edge rendered alone (no competing back edge at
-      // all) — `"hide"` must reproduce this exactly.
-      const frontOnly = rasterize(buildRasterizeContext({
-        camera: passthroughCamera(),
-        grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
-        wireframe: [{ from: [5, 5, 1], to: [5, 5, 1], weight: 2, color: "#00ff00" }],
-        mode: "wireframe",
-        useColors: true,
-      }));
+    // Ground truth: the front edge rendered alone (no competing back edge at
+    // all) — `"hide"` must reproduce this exactly.
+    const frontOnly = rasterize(buildRasterizeContext({
+      camera: passthroughCamera(),
+      grid: { cols: COLS, rows: ROWS, cellAspect: 2.0 },
+      wireframe: [{ from: [5, 5, 1], to: [5, 5, 1], weight: 2, color: "#00ff00" }],
+      mode: "wireframe",
+      useColors: true,
+    }));
 
-      const hideCell = cellAt(hideOut, 5, 5);
-      expect(hideCell.color).toBe("#00ff00");
-      expect(hideCell.char).toBe(glyphs.normal[0]);
-      expect(hideOut).toBe(frontOnly);
+    const hideCell = cellAt(hideOut, 5, 5);
+    expect(hideCell.color).toBe("#00ff00");
+    expect(glyphs.normal).toContain(hideCell.char);
+    expect(hideOut).toBe(frontOnly);
 
-      // Confirm "show" really did regress this cell (sanity — proven above too).
-      expect(cellAt(showOut, 5, 5).color).toBe("#ff0000");
-      expect(hideOut).not.toBe(showOut);
-    } finally {
-      randomSpy.mockRestore();
-    }
+    // Confirm "show" really did regress this cell (sanity — proven above too).
+    expect(cellAt(showOut, 5, 5).color).toBe("#ff0000");
+    expect(hideOut).not.toBe(showOut);
   });
 
   it('"hide" leaves a stroke visible when there is no surface at that cell at all (nothing to occlude against)', () => {
