@@ -186,17 +186,27 @@ describe("line(): a diagonal's glyph reads the line's offset from the centre of 
   });
 });
 
-describe("line(): a wide stroke keeps cells the line table leaves blank", () => {
-  it("MUTATION CAUGHT: a width-2 diagonal inks the corner-clipped cell it still passes through, so the stroke has no hole", () => {
-    // (0,0) -> (2,1) at cellAspect 0.5: the table answers blank for the
-    // middle cell (the thin line only clips its corner), but a wide stroke
-    // fills its whole footprint and must still ink (1, 0).
-    const wide = createGlyphCanvas({ cols: 3, rows: 2, tier: "box", cellAspect: 0.5 });
-    wide.line({ x: 0, y: 0 }, { x: 2, y: 1 }, { width: 2 });
-    expect(wide.grid.char[0 * 3 + 1]).not.toBe(" ");
-    // The same line at width 1 still leaves that cell to its neighbours.
-    const thin = createGlyphCanvas({ cols: 3, rows: 2, tier: "box", cellAspect: 0.5 });
-    thin.line({ x: 0, y: 0 }, { x: 2, y: 1 });
-    expect(thin.grid.char[0 * 3 + 1]).toBe(" ");
+describe("line(): a wide stroke keeps the footprint of the thin one", () => {
+  const inked = (tier: "ascii" | "box", width: 1 | 2 | 3, from: { x: number; y: number }, to: { x: number; y: number }, cellAspect?: number) => {
+    const c = createGlyphCanvas({ cols: 24, rows: 12, tier, ...(cellAspect ? { cellAspect } : {}) });
+    c.line(from, to, { width });
+    return c.grid.char.map((ch) => (ch === " " ? 0 : 1));
+  };
+
+  it("MUTATION CAUGHT: widths 2 and 3 ink exactly the cells width 1 inks, on sloped runs in every direction and aspect", () => {
+    const runs: [{ x: number; y: number }, { x: number; y: number }][] = [
+      [{ x: 0, y: 0 }, { x: 2, y: 1 }], [{ x: 1, y: 1 }, { x: 20, y: 6 }], [{ x: 20, y: 2 }, { x: 3, y: 10 }],
+      [{ x: 4, y: 0 }, { x: 8, y: 11 }], [{ x: 10.4, y: 9.6 }, { x: 14.2, y: 0.3 }], [{ x: 0, y: 5 }, { x: 22, y: 5.6 }],
+    ];
+    for (const tier of ["ascii", "box"] as const) {
+      for (const aspect of [0.5, 1, 2]) {
+        for (const [from, to] of runs) {
+          const thin = inked(tier, 1, from, to, aspect);
+          expect(thin.some(Boolean)).toBe(true);
+          expect(inked(tier, 2, from, to, aspect)).toEqual(thin);
+          expect(inked(tier, 3, from, to, aspect)).toEqual(thin);
+        }
+      }
+    }
   });
 });
