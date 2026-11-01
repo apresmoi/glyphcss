@@ -146,35 +146,42 @@ describe("line(): styled runs (mutation: ignore the requested style -> red)", ()
   });
 });
 
-describe("line(): a diagonal's glyph reads the offset within the cell `line()` assigns (cell c spans [c-0.5, c+0.5))", () => {
+describe("line(): a diagonal's glyph reads the line's offset from the centre of the cell `line()` assigns (cell c is centred on c)", () => {
   it("MUTATION CAUGHT: a shallow run through a row centre uses the centred glyph, not the cell-top overline ones", () => {
-    // y runs 0 -> 0.2 across row 0, so every sample sits 0.5-0.7 of the way
-    // down its cell: "-" then "_" past 2/3. The old `py - floor(py)` read the
-    // same samples as 0.0-0.2 from the top and emitted "‾‾‾‾‾".
+    // y runs 0 -> 0.2 across row 0, so the line sits 0 to 0.2 below every
+    // sampled cell's centre: "-" throughout. Measuring from the cell's top
+    // edge instead would read the same samples as 0.0-0.2 from the top and
+    // emit "‾‾‾‾‾".
     const canvas = createGlyphCanvas({ cols: 5, rows: 1, tier: "box" });
     canvas.line({ x: 0, y: 0 }, { x: 4, y: 0.2 }, { style: "solid" });
-    expect(encodeGlyphCanvasText(canvas)).toBe("----_");
+    expect(encodeGlyphCanvasText(canvas)).toBe("-----");
   });
 
-  it("MUTATION CAUGHT: a ~2 degree run steps _ -> (gap) -> overline -> upper-eighth -> - symmetrically about the row boundary", () => {
-    // Row 0 starts on its centre (offset 0.5 -> "-"), sinks to "_" at the
-    // bottom edge; row 1 picks up at its top edge ("‾") and rises to its
-    // centre ("-"). Hand-checked: col c in row 0 has offset 0.5 + c/28
-    // ("-" below 2/3, i.e. c <= 4); col c in row 1 has offset c/28 - 0.5
-    // ("‾" < 1/6, "▔" < 1/3, then "-").
+  it("MUTATION CAUGHT: a ~2 degree run draws one glyph per column and steps - -> _ down to the row boundary, then ‾ -> - below it", () => {
+    // Row 0 starts with the line on its centre and sinks to its bottom edge:
+    // "-" then "_". Row 1 picks up at its top edge: "‾" then "-" as the line
+    // reaches its centre. Every column is inked exactly once, so the stroke
+    // has no gap and no doubled cell, and the swap happens where the line
+    // crosses the row boundary (x = 14).
     const canvas = createGlyphCanvas({ cols: 29, rows: 2, tier: "box" });
     canvas.line({ x: 0, y: 0 }, { x: 28, y: 1 }, { style: "solid" });
-    expect(encodeGlyphCanvasText(canvas)).toBe(
-      "-----__________              \n" + "              ‾‾‾‾‾▔▔▔▔▔-----",
-    );
+    const [top, bottom] = encodeGlyphCanvasText(canvas).split("\n") as [string, string];
+    expect(top).toMatch(/^-+_+ +$/);
+    expect(bottom).toMatch(/^ +‾+-+$/);
+    for (let c = 0; c < 29; c++) expect((top[c] === " ") !== (bottom[c] === " ")).toBe(true);
+    expect(top.trimEnd().length).toBe(14);
   });
 
   it("a negative-coordinate run is offset against the cell the walk reports, not a re-derived one", () => {
-    // Same shallow slope, shifted so the walk spans cells -2..2 (clipped
-    // to the canvas, which starts at 0): cols 0..2 must match the tail of
-    // the unshifted run, i.e. offsets stay 0.5-0.7 -> "-", "-", "_".
-    const canvas = createGlyphCanvas({ cols: 3, rows: 1, tier: "box" });
-    canvas.line({ x: -2, y: 0 }, { x: 2, y: 0.2 }, { style: "solid" });
-    expect(encodeGlyphCanvasText(canvas)).toBe("--_");
+    // The same line shifted left by 2 columns: the canvas starts at 0, so the
+    // clipped render must equal the tail (columns 2..4) of the unshifted one,
+    // glyph for glyph, including the row change halfway.
+    const unshifted = createGlyphCanvas({ cols: 5, rows: 2, tier: "box" });
+    unshifted.line({ x: 0, y: 0 }, { x: 4, y: 0.8 }, { style: "solid" });
+    const shifted = createGlyphCanvas({ cols: 3, rows: 2, tier: "box" });
+    shifted.line({ x: -2, y: 0 }, { x: 2, y: 0.8 }, { style: "solid" });
+    const tail = encodeGlyphCanvasText(unshifted).split("\n").map((l) => l.slice(2)).join("\n");
+    expect(encodeGlyphCanvasText(shifted)).toBe(tail);
+    expect(tail.replace(/[ \n]/g, "").length).toBe(3);
   });
 });

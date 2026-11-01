@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { GLYPH_CANVAS_TIERS, type GlyphCanvasTier, type GlyphCanvasTierName } from "./tiers";
+import { LINE_GLYPH_TABLES } from "../lineTables";
 import { createGlyphCanvas } from "./canvas";
 import { encodeGlyphCanvasText } from "./encode";
+
+/** Every glyph a tier's `line()` diagonals can draw: its line vocabulary plus the zero-length dot. */
+function lineVocabGlyphs(tier: { readonly lineVocab: keyof typeof LINE_GLYPH_TABLES }): Set<string> {
+  return new Set([...LINE_GLYPH_TABLES[tier.lineVocab]].filter((ch) => ch !== " ").concat("·"));
+}
 
 const TIER_NAMES: GlyphCanvasTierName[] = ["ascii", "box", "blocks", "braille"];
 
@@ -38,12 +44,15 @@ describe("GLYPH_CANVAS_TIERS: parity", () => {
     }
   });
 
-  it("diagonal tables share the same nine keys across all tiers", () => {
-    const boxDiagonalKeys = Object.keys(GLYPH_CANVAS_TIERS.box.diagonal).sort();
-    expect(boxDiagonalKeys).toEqual(["-", "/", "\\", "_", "|", "▏", "▔", "▕", "‾"].sort());
+  it("every tier names a line vocabulary: ascii draws from the ASCII one, every other tier from the ink one", () => {
     for (const name of TIER_NAMES) {
-      expect(Object.keys(GLYPH_CANVAS_TIERS[name].diagonal).sort()).toEqual(boxDiagonalKeys);
+      expect(GLYPH_CANVAS_TIERS[name].lineVocab).toBe(name === "ascii" ? "ascii" : "ink");
     }
+    for (const ch of LINE_GLYPH_TABLES.ascii) {
+      expect(ch.charCodeAt(0)).toBeGreaterThanOrEqual(0x20);
+      expect(ch.charCodeAt(0)).toBeLessThanOrEqual(0x7e);
+    }
+    expect([...LINE_GLYPH_TABLES.ink].some((ch) => ch.charCodeAt(0) > 0x7e)).toBe(true);
   });
 });
 
@@ -63,7 +72,7 @@ function tableGlyphs(tier: GlyphCanvasTier): Set<string> {
   glyphs.add(tier.arrow.e);
   glyphs.add(tier.arrow.s);
   glyphs.add(tier.arrow.w);
-  for (const g of Object.values(tier.diagonal)) glyphs.add(g);
+  for (const g of lineVocabGlyphs(tier)) glyphs.add(g);
   for (const g of tier.shadeRamp) glyphs.add(g);
   return glyphs;
 }
@@ -143,14 +152,10 @@ describe("GLYPH_CANVAS_TIERS: tier swap", () => {
   });
 
   it("a near-45-degree diagonal line's ascii output stays inside printable ASCII (mutation: bypass the tier table for diagonals -> non-ASCII output -> red)", () => {
-    // A near-45-degree slope (dx=11, dy=5) lands entirely in
-    // `inkGlyphForTangent`'s single "\\" branch for its whole length — every
-    // raw ink glyph it can produce there already happens to be ASCII, so
-    // this shape does NOT distinguish "goes through the tier table" from
-    // "bypasses it": both give the same (ASCII) answer. A NEAR-HORIZONTAL
-    // slope instead sweeps through the four vertically-offset near-axis
-    // glyphs (`‾`/`▔`/`-`/`_`), three of which are non-ASCII in the raw
-    // vocabulary, so it is the shape that actually exercises the table.
+    // A near-horizontal slope sweeps the vertically-offset glyphs of the ink
+    // vocabulary (`‾`/`-`/`_`), two of which are non-ASCII, so it is the
+    // shape that exercises the tier's `lineVocab` rather than passing
+    // vacuously on glyphs both vocabularies share.
     const canvas = createGlyphCanvas({ cols: 24, rows: 6, tier: "ascii" });
     canvas.line({ x: 0, y: 2 }, { x: 23, y: 3 });
     const text = encodeGlyphCanvasText(canvas);
@@ -161,6 +166,18 @@ describe("GLYPH_CANVAS_TIERS: tier swap", () => {
     const boxCanvas = createGlyphCanvas({ cols: 24, rows: 6, tier: "box" });
     boxCanvas.line({ x: 0, y: 2 }, { x: 23, y: 3 });
     expect(encodeGlyphCanvasText(boxCanvas)).not.toMatch(/^[\x20-\x7e\n]*$/);
+  });
+
+  it("ascii-tier line() never emits a character outside 0x20-0x7e, whatever the slope or direction (mutation: lineVocab 'ink' -> red)", () => {
+    const canvas = createGlyphCanvas({ cols: 41, rows: 21, tier: "ascii" });
+    const box = createGlyphCanvas({ cols: 41, rows: 21, tier: "box" });
+    for (let a = 0; a < 360; a += 9) {
+      const to = { x: Math.round(20 + 19 * Math.cos((a * Math.PI) / 180)), y: Math.round(10 + 9 * Math.sin((a * Math.PI) / 180)) };
+      canvas.line({ x: 20, y: 10 }, to);
+      box.line({ x: 20, y: 10 }, to);
+    }
+    expect(encodeGlyphCanvasText(canvas)).toMatch(/^[\x20-\x7e\n]*$/);
+    expect(encodeGlyphCanvasText(box)).not.toMatch(/^[\x20-\x7e\n]*$/);
   });
 
   it("exact per-tier fixture, including a diagonal, compared cell for cell against a fixed expected string (mutation: hardcode straight-run glyphs -> red)", () => {

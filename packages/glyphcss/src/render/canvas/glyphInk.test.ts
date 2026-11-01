@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { glyphInkDensity, glyphInkMask } from "./glyphInk";
+import { LINE_GLYPH_TABLES } from "../lineTables";
 import { GLYPH_CANVAS_QUADRANT_GLYPHS, GLYPH_CANVAS_TIERS, type GlyphCanvasTierName } from "./tiers";
+
+/** Every glyph a tier's `line()` diagonals can draw: its line vocabulary plus the zero-length dot. */
+function lineVocabGlyphs(tier: { readonly lineVocab: keyof typeof LINE_GLYPH_TABLES }): Set<string> {
+  return new Set([...LINE_GLYPH_TABLES[tier.lineVocab]].filter((ch) => ch !== " ").concat("·"));
+}
 
 const TIERS: readonly GlyphCanvasTierName[] = ["ascii", "box", "blocks", "braille"];
 
@@ -20,7 +26,7 @@ function staticTierGlyphs(tierName: GlyphCanvasTierName): Set<string> {
   out.add(t.arrow.e);
   out.add(t.arrow.s);
   out.add(t.arrow.w);
-  for (const g of Object.values(t.diagonal)) out.add(g);
+  for (const g of lineVocabGlyphs(t)) out.add(g);
   for (const g of t.shadeRamp) out.add(g);
   return out;
 }
