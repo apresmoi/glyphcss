@@ -118,16 +118,16 @@ export const STRATEGIES = {
 /** Every glyph a current strategy can emit (for the candidate set). */
 export function strategyGlyphs() {
   const set = new Set();
-  // inkGlyphForTangent's whole output range.
-  for (let a = 0; a < 180; a += 0.5) for (const s of [0.05, 0.2, 0.5, 0.9]) {
+  // inkGlyphForTangent's whole output range, every table it reads.
+  for (const vocab of ["ink", "box", "ascii"]) for (let a = 0; a < 180; a += 0.5) for (const s of [0.05, 0.2, 0.5, 0.9]) {
     const r = (a * Math.PI) / 180;
-    set.add(g.inkGlyphForTangent(Math.cos(r), Math.sin(r), s, s));
+    set.add(g.inkGlyphForTangent(Math.cos(r), Math.sin(r), s, s, 1.66, vocab));
   }
-  set.add(g.inkGlyphForTangent(0, 0));
+  set.add(g.inkGlyphForTangent(0, 0, 0.5, 0.5, 1));
+  set.delete("");
   for (const tier of ["thin", "normal", "core"]) for (const x of g.WIREFRAME_PALETTES.default[tier]) set.add(x);
   for (const x of "─│└┘┌┐├┤┬┴┼·") set.add(x); // box strategy + JUNCTION_GLYPHS
   for (const x of Object.values(g.GLYPH_CANVAS_TIERS.box.straight)) set.add(x);
-  for (const x of Object.values(g.GLYPH_CANVAS_TIERS.box.diagonal)) set.add(x);
   for (let m = 0; m < 256; m++) set.add(String.fromCodePoint(0x2800 + m));
   for (const x of "‾-_|+`',.") set.add(x); // maps "ascii" experimental strategy
   set.delete(" ");

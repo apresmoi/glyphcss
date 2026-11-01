@@ -376,12 +376,14 @@ export function tableCells(ctx, table) {
  */
 export function fitTable(ctxs, gp, vocab, refMassPerCw, { passes = 3 } = {}) {
   const items = ctxs.map((ctx) => {
-    const rho = refMassPerCw / ctx.fm.cellW, mref = rho * ctx.L;
+    // A joint fit over several faces carries each face's glyph prep and ink normaliser on its context.
+    const gpc = ctx.gp ?? gp;
+    const rho = (ctx.refMassPerCw ?? refMassPerCw) / ctx.fm.cellW, mref = rho * ctx.L;
     const cache = ctx.nodes.map(() => new Map());
     const lcOf = (i, g) => {
       let lc = cache[i].get(g);
       if (!lc) {
-        lc = labelCost(ctx, gp, i, g === " " ? BLANK : { g, dc: 0, dr: 0 });
+        lc = labelCost(ctx, gpc, i, g === " " ? BLANK : { g, dc: 0, dr: 0 });
         lc.u = unaryOf(ctx, ctx.nodes[i], lc, mref, rho, ctx.nodes.length);
         const nd = ctx.nodes[i], f = coverCostFn(ctx);
         // Chain-end halves have no pair partner: charge them here, as the DP does.

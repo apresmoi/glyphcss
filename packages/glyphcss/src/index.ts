@@ -219,7 +219,8 @@ export type {
 export { projectHotspots } from "./api/projectHotspots";
 
 // ── Rasterizer ────────────────────────────────────────────────────
-export { rasterize, bakeFrames, rasterizeToCells, inkGlyphForTangent } from "./render/rasterize";
+export { rasterize, bakeFrames, rasterizeToCells, inkGlyphForTangent, inkLineCell } from "./render/rasterize";
+export type { LineGlyphVocab } from "./render/lineTables";
 // ── Cell-buffer contract + post-rasterize hook (M4 composition effects) ──
 export {
   buildCellGrid,
@@ -314,8 +315,6 @@ export type {
   GlyphCanvasTierName,
   GlyphCanvasStraightGlyphs,
   GlyphCanvasArrowGlyphs,
-  GlyphCanvasDiagonalGlyphs,
-  GlyphCanvasDiagonalKey,
   GlyphCanvasAnsiColorMode,
   GlyphCanvasAnsiOptions,
   GlyphCanvasHtmlOptions,

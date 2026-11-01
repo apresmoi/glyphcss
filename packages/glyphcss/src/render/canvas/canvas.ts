@@ -18,7 +18,6 @@ import { glyphInkDensity } from "./glyphInk";
 import { createGlyphCanvasReport, type GlyphCanvasFoldedGlyph, type GlyphCanvasReport } from "./report";
 import {
   GLYPH_CANVAS_TIERS,
-  type GlyphCanvasDiagonalKey,
   type GlyphCanvasTier,
   type GlyphCanvasTierName,
 } from "./tiers";
@@ -842,20 +841,15 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
 
         let baseGlyph: string | undefined;
         if (diagonal) {
-          // A diagonal has no dashed/dotted/double analogue in this glyph
-          // set (`inkGlyphForTangent` already varies by sub-cell offset, so
-          // there is no single extra "style" axis left to modulate); it
-          // still goes through the TIER TABLE for every glyph, via
-          // `tier.diagonal`, so an `ascii` canvas never emits the raw
-          // (non-ASCII) ink vocabulary directly.
-          // `line()` centres cell `c` on integer `c`, so the cell spans
-          // `[c - 0.5, c + 0.5)`; `inkGlyphForTangent` wants the offset from
-          // that cell's top/left edge (0.5 = centre), measured against the
-          // walk's own cell, not a re-derived one.
-          const subCol = px + 0.5 - cx;
-          const subRow = py + 0.5 - cy;
-          const rawInk = inkGlyphForTangent(dx, dy, subRow, subCol);
-          baseGlyph = rawInk === "·" ? tierTable.dot : tierTable.diagonal[rawInk as GlyphCanvasDiagonalKey];
+          // A diagonal has no dashed/dotted/double analogue; its glyph comes
+          // from the tier's own line table (`lineVocab`), so an `ascii`
+          // canvas never emits a non-ASCII stroke. `line()` centres cell `c`
+          // on integer `c`, so the cell spans `[c - 0.5, c + 0.5)`;
+          // `inkGlyphForTangent` wants the offset from that cell's top/left
+          // edge, measured against the walk's own cell.
+          const rawInk = inkGlyphForTangent(dx, dy, py + 0.5 - cy, px + 0.5 - cx, 1 / cellAspect, tierTable.lineVocab);
+          if (!rawInk) continue;
+          baseGlyph = rawInk === "·" ? tierTable.dot : rawInk;
           if (style === "double" && !loggedDoubleDiagonal) {
             loggedDoubleDiagonal = true;
             report.ledger.push(

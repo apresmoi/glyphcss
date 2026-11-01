@@ -3,6 +3,7 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, resolveGly
 import type { Polygon, PolyTextureWrapMode, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
+import { LINE_GLYPH_TABLES, LINE_TABLE_ANGLE_BUCKETS, LINE_TABLE_OFFSET_BINS, type LineGlyphVocab } from "./lineTables";
 import {
   applyCellHook,
   buildCellGrid,
@@ -1474,91 +1475,63 @@ function biasTangentToSegment(vt: [number, number], segDir: [number, number]): [
 }
 
 /**
- * Map a screen-space contour tangent (+ the cell's fractional vertical/
- * horizontal position, used by the horizontal and vertical glyphs
- * respectively) to an oriented ink glyph. `theta = atan2(dy, dx)` is folded
- * into `[0, π)` (a tangent and its negation trace the same line) and
- * quantized into four 45°-wide buckets centered on horizontal / "\" /
- * vertical / "/". Exported so the quantization can be unit tested directly,
- * independent of the full silhouette + smoothing pipeline.
- *
- * Sub-cell discrimination is only added where a monospace font actually
- * renders font-distinct, consistent-weight glyphs for it. Measured by
- * rasterizing each candidate codepoint in the real font (Menlo) and taking
- * PCA over its inked pixels — see
- * `research/contour-first-text/experiments/11-line-glyph-census.mjs` (angle
- * census) and `.../14-subcell-quantization-census.mjs` (this finer
- * row/column census). Every level below is ordered by MEASURED centroid,
- * not assumption:
- *
- * - Horizontal: "‾" (row .16) / "▔" (row .28, UPPER ONE EIGHTH BLOCK) /
- *   "-" (row .68) / "_" (row 1.12). "▔" was added because it measures at
- *   4.3% coverage / 0.90 eccentricity — in family with "‾"/"_" at
- *   2.5-2.8% coverage / 0.90-0.95 eccentricity, not a visible weight jump.
- *   "▁" (LOWER ONE EIGHTH BLOCK) was measured too but its centroid (row
- *   1.17) sits only .05 away from "_" (row 1.12) — far closer to "_" than
- *   any other adjacent pair here — so it was DROPPED as positionally
- *   redundant, not a real new level. "▂"/"▃" (LOWER ONE QUARTER / THREE
- *   EIGHTHS BLOCK) were DROPPED for weight: 8.1%/11.9% coverage (2-4x the
- *   ~3% baseline) and eccentricity 0.68/0.42 (no longer thin-line shaped at
- *   this cell aspect) — a visibly heavier, more block-like stroke.
- * - Vertical stays at three levels: "▏" (col .02, LEFT ONE EIGHTH BLOCK) /
- *   "|" (col .31) / "▕" (col .56, RIGHT ONE EIGHTH BLOCK) — unchanged from
- *   db5703c. "▎" (LEFT ONE QUARTER BLOCK, col .06) measured plausibly by
- *   coverage alone (7.3% vs the shipped ~3-5.5% baseline) and was tried, but
- *   the rendered visual proof on the motivating extruded-text case
- *   (`research/contour-first-text/experiments/15-render-visual-proof.mjs`,
- *   `after16-headon.txt` vs `before16-headon.txt`) showed 20 of 21 "▏"
- *   instances in that render converting to "▎" — not occasional finer
- *   positioning but a near-total, systemic replacement that reads as the
- *   whole word's vertical strokes getting uniformly heavier, not smoother.
- *   Real extruded-text geometry clusters many parallel strokes at similar
- *   sub-column offsets, so this isn't a fluke of one fixture; it's dropped
- *   for real observed weight inconsistency, per the "a visibly uneven stroke
- *   is worse than a coarser one" rule. "▍"/"▌"/"▐" (11.3%/15.3%/16.1%
- *   coverage, 2-3x the baseline) were dropped outright on the coverage
- *   measurement alone, without needing a render to confirm.
- * - Diagonals ("\\" and "/") do NOT get sub-cell discrimination: ASCII and
- *   the Unicode box-drawing diagonals (U+2571/U+2572) have exactly one
- *   glyph per direction with no left/right-shifted variant a monospace font
- *   renders distinctly, and a diagonal stroke already spans corner-to-corner
- *   within its cell, so there's no analogous "offset within the cell" to
- *   express even if a variant existed.
- *
- * Bucket thresholds are 1/6, 1/3, 2/3 on both axes: the original even
- * trisection (1/3, 2/3) is unchanged (so every pre-existing threshold-facing
- * test keeps its result), and the new finer level only subdivides the first
- * third in half. This is a placement choice, not a claim that 1/6 equals a
- * measured centroid midpoint — the existing 1/3-2/3 split was already a
- * round-number simplification over the measured centroids, not an exact fit.
+ * Where one sample of a line draws: the cell its line crosses at the centre of
+ * the sample's own major-axis column (row-major) or row (column-major), plus
+ * that crossing as a fraction of the cell. Every major step of a straight run
+ * then lands exactly one cell, the one the line truly passes through, which is
+ * what `LINE_GLYPH_TABLES` was fitted on; stamping the raw sample's cell
+ * instead puts a corner-clipped cell where the run should be and leaves the
+ * real one empty. Writes `[col, row, subCol, subRow]` into `out`.
  */
-const SUB_SIXTH = 1 / 6;
-const SUB_THIRD = 1 / 3;
-const SUB_TWO_THIRDS = 2 / 3;
+export function inkLineCell(x: number, y: number, dx: number, dy: number, out: [number, number, number, number]): void {
+  if (Math.abs(dx) >= Math.abs(dy) && dx !== 0) {
+    const col = Math.floor(x), cy = y + (col + 0.5 - x) * (dy / dx), row = Math.floor(cy);
+    out[0] = col; out[1] = row; out[2] = 0.5; out[3] = cy - row;
+  } else if (dy !== 0) {
+    const row = Math.floor(y), cx = x + (row + 0.5 - y) * (dx / dy), col = Math.floor(cx);
+    out[0] = col; out[1] = row; out[2] = cx - col; out[3] = 0.5;
+  } else {
+    out[0] = Math.floor(x); out[1] = Math.floor(y); out[2] = x - out[0]; out[3] = y - out[1];
+  }
+}
 
-export function inkGlyphForTangent(dx: number, dy: number, subRow = 0.5, subCol = 0.5): string {
-  if (Math.hypot(dx, dy) < 1e-6) return "·"; // "·" — degenerate/point contour
-  let theta = Math.atan2(dy, dx);
-  if (theta < 0) theta += Math.PI;
-  const EIGHTH = Math.PI / 8;
-  if (theta < EIGHTH || theta >= Math.PI - EIGHTH) {
-    // Near-horizontal: use the cell's fractional vertical position to pick
-    // among four vertically-offset glyphs instead of always "-".
-    if (subRow < SUB_SIXTH) return "‾"; // "‾" OVERLINE
-    if (subRow < SUB_THIRD) return "▔"; // "▔" UPPER ONE EIGHTH BLOCK
-    if (subRow < SUB_TWO_THIRDS) return "-";
-    return "_";
-  }
-  if (theta < 3 * EIGHTH) return "\\";
-  if (theta < 5 * EIGHTH) {
-    // Near-vertical: mirror the horizontal case onto the column axis. Stays
-    // at three levels — see the doc comment above for why a finer "▎" level
-    // was tried and dropped.
-    if (subCol < SUB_THIRD) return "▏"; // "▏" LEFT ONE EIGHTH BLOCK
-    if (subCol < SUB_TWO_THIRDS) return "|";
-    return "▕"; // "▕" RIGHT ONE EIGHTH BLOCK
-  }
-  return "/";
+/**
+ * The oriented glyph that best draws a line through one cell, looked up from
+ * `LINE_GLYPH_TABLES` (fitted offline against real-font rasters of both site
+ * faces, see `bench/line-fidelity/`). The line is given by its screen tangent
+ * `(dx, dy)` in cell units (any sign: a tangent and its negation are the same
+ * line) and one point on it, `(subCol, subRow)`, as the fraction of THIS cell
+ * (0 = left/top edge, 0.5 = centre). `cellHeightPerWidth` turns the tangent
+ * into the angle the viewer sees, which is what the glyph has to match.
+ *
+ * The key is the visual angle, the cell-space major axis, and how far the
+ * line passes from the cell centre along the minor axis, extrapolated from
+ * the given point. That offset, not the point, decides the glyph, so every
+ * sample of a straight run that lands in one cell gets the same answer.
+ * Returns `""` where the table says the cell is better left blank (the line
+ * only clips its corner); a zero tangent is a point and returns `"·"`.
+ */
+export function inkGlyphForTangent(
+  dx: number,
+  dy: number,
+  subRow: number,
+  subCol: number,
+  cellHeightPerWidth: number,
+  vocab: LineGlyphVocab = "ink",
+): string {
+  if (Math.hypot(dx, dy) < 1e-6) return "·";
+  // Screen y points down; the tables measure the angle counter-clockwise.
+  let deg = (Math.atan2(-dy * cellHeightPerWidth, dx) * 180) / Math.PI;
+  deg = ((deg % 180) + 180) % 180;
+  const width = 180 / LINE_TABLE_ANGLE_BUCKETS;
+  const bucket = Math.floor((deg + width / 2) / width) % LINE_TABLE_ANGLE_BUCKETS;
+  const rowMajor = Math.abs(dx) >= Math.abs(dy);
+  const offset = rowMajor
+    ? subRow + (0.5 - subCol) * (dy / dx) - 0.5
+    : subCol + (0.5 - subRow) * (dx / dy) - 0.5;
+  const bin = Math.max(0, Math.min(LINE_TABLE_OFFSET_BINS - 1, Math.floor((offset + 1) * (LINE_TABLE_OFFSET_BINS / 2))));
+  const glyph = LINE_GLYPH_TABLES[vocab][(bucket * 2 + (rowMajor ? 0 : 1)) * LINE_TABLE_OFFSET_BINS + bin]!;
+  return glyph === " " ? "" : glyph;
 }
 
 /**
@@ -1860,6 +1833,7 @@ function rasterizeInk(
   // depth. This never removes a stroke — every contested cell still gets
   // whichever equal-rank segment is nearest, so it cannot punch the
   // mid-stroke holes the per-sample hidden-line attempts did.
+  const inkCell: [number, number, number, number] = [0, 0, 0, 0];
   const cellRank = new Int8Array(cols * rows).fill(-1);
   const cellDepth = new Float64Array(cols * rows).fill(-Infinity);
   for (const seg of [...edgeSegments].sort((l, r) => l.rank - r.rank)) {
@@ -1874,11 +1848,15 @@ function rasterizeInk(
     const ta = biasTangentToSegment(tangent.get(seg.fromKey)!, segDir);
     const tb = biasTangentToSegment(tangent.get(seg.toKey)!, segDir);
     const dz = seg.toZ - seg.fromZ;
-    const steps = Math.max(1, Math.round(Math.max(Math.abs(dx), Math.abs(dy))));
+    // At most one cell per step along the major axis, so the snapped walk
+    // (`inkLineCell`) visits every column of a run.
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const x = a[0] + dx * t, y = a[1] + dy * t;
-      const cx = Math.floor(x), cy = Math.floor(y);
+      const tx = ta[0] + (tb[0] - ta[0]) * t, ty = ta[1] + (tb[1] - ta[1]) * t;
+      inkLineCell(x, y, tx, ty, inkCell);
+      const cx = inkCell[0], cy = inkCell[1];
       if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) continue;
       const idx = cy * cols + cx;
       const z = seg.fromZ + dz * t;
@@ -1896,12 +1874,15 @@ function rasterizeInk(
           if (inkOcclusion.depth[idx]! > z + allowed) continue;
         }
       }
-      const tx = ta[0] + (tb[0] - ta[0]) * t, ty = ta[1] + (tb[1] - ta[1]) * t;
       if (cellRank[idx]! > seg.rank) continue;
       if (cellRank[idx]! === seg.rank && cellDepth[idx]! >= z) continue;
+      // A blank answer means the line only clips this cell: leave it to
+      // whatever else draws there instead of claiming it.
+      const glyph = inkGlyphForTangent(tx, ty, inkCell[3], inkCell[2], cellAspect);
+      if (!glyph) continue;
       cellRank[idx] = seg.rank;
       cellDepth[idx] = z;
-      charBuf[idx] = inkGlyphForTangent(tx, ty, y - cy, x - cx);
+      charBuf[idx] = glyph;
       if (colorBuf) colorBuf[idx] = seg.color ?? null;
     }
   }

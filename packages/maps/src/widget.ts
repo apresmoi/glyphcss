@@ -7259,7 +7259,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // this layer so one road's depth never occludes the next.
       const surface = layer.experimentalGlyphStrategy === "braille" ? { ...grid, depth: grid.depth.slice() } : undefined;
       const sink = (color: string | undefined, verts: readonly GlyphMapStrokeVertex[]): void => {
-        stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
+        stampGlyphMapPolyline(grid, verts, { color, cellAspect: baseGrid.cellAspect, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
       };
       let prepared: StrokePlan | undefined;
       if (plans.length) {
@@ -8117,6 +8117,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       };
       const plan = stampGlyphMapContourGeometry(grid, polylines, {
         color: layer.color,
+        cellAspect: baseGrid.cellAspect,
         ...(layer.experimentalGlyphStrategy ? { experimentalGlyphStrategy: layer.experimentalGlyphStrategy } : {}),
         requireSurface: hasOpaqueSurface,
         covered: layer.labels === true && !hasOpaqueSurface ? coveredByProjection : undefined,
