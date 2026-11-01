@@ -26,13 +26,13 @@ describe("experimental map stroke glyphs", () => {
     stampGlyphMapPolyline(g, points, { color: "#e8c988" });
     expect(text(g)).toMatchInlineSnapshot(`
       "                
-       ‾‾▔▔----__▕    
+       ‾‾--------▕    
                  ▕    
                  ▕    
-        ▔-       ▕    
-          ▔-_    ▕    
-             ▔-_ ▕    
-                ‾_    
+        -_       ▕    
+          ‾─_    ▕    
+             ‾─_ ▕    
+                -─    
                       
                       "
     `);
