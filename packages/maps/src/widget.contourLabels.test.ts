@@ -95,15 +95,16 @@ function labelRuns(map: ReturnType<typeof createGlyphMap>): { row: number; col: 
  * The GLYPH is part of the pin and carries real information now that a
  * contour is geometry: `inkGlyphForTangent` picks the oriented glyph from the
  * stroke's own SUB-CELL position, so a horizontal line sitting in the lower
- * part of its cell reads `_` and one in the upper part `▔`. The per-cell scan
+ * part of its cell reads `_` and one in the upper part `-` (the fitted table
+ * has no `▔` for a line this close to the cell centre). The per-cell scan
  * had no sub-cell position to offer and passed 0.5, so every line read `-`
  * and a level's true height inside a cell was rounded away. Twelve evenly
  * spaced levels landing alternately low and high in their cells is exactly
  * what that recovers.
  */
 const UNLABELLED_INK = new Map<number, string>([
-  [11, "_"], [13, "▔"], [14, "_"], [16, "▔"], [17, "_"], [19, "▔"],
-  [20, "_"], [22, "▔"], [23, "_"], [25, "▔"], [26, "_"], [28, "▔"],
+  [11, "_"], [13, "-"], [14, "_"], [16, "-"], [17, "_"], [19, "-"],
+  [20, "_"], [22, "-"], [23, "_"], [25, "-"], [26, "_"], [28, "-"],
 ]);
 const UNLABELLED_INK_ROWS = [...UNLABELLED_INK.keys()];
 const unlabelledGolden = (): string =>
@@ -161,7 +162,7 @@ describe("createGlyphMap — contour labels", () => {
     // both sides, and the rule resumes immediately after it, in that line's
     // own sub-cell glyph.
     expect(lines[17]).toBe(` 5000 ${"_".repeat(22)} 5000 ${"_".repeat(26)}`);
-    expect(lines[25]).toBe(` 10000 ${"▔".repeat(22)} 10000 ${"▔".repeat(24)}`);
+    expect(lines[25]).toBe(` 10000 ${"-".repeat(22)} 10000 ${"-".repeat(24)}`);
 
     // Every OTHER contour row is untouched — an unbroken rule, no digits, no
     // stray gap. This is what makes it "every 5th line" rather than "some
