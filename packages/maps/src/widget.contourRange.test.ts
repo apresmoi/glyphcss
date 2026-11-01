@@ -334,22 +334,27 @@ describe("createGlyphMap — contour elevation window (minElevation/maxElevation
    * identical; the geometry stands at the crossing's own sub-cell position, so
    * every row of a vertical line is now byte-identical to every other and the
    * glyph carries the sub-cell offset (`▕`/`▏`) instead of rounding it away.
+   * RE-BASELINED again for the fitted line-glyph table: ink now stands at the
+   * line's crossing of each cell, so `▕` reads `|` where the line sits nearer
+   * the cell centre. In the interval case several levels share column 30 and
+   * the topmost row's winner differs (`topRow`): which level survives the
+   * depth tie there moved with the snapped depth.
    * The property this pins is unchanged: declaring no window must render
    * exactly as not declaring one, for every `levels` shape.
    */
-  const expandGolden = (inkRow: string): string =>
-    Array.from({ length: ROWS }, (_, r) => (r >= 6 && r <= 17 ? inkRow : " ".repeat(COLS))).join("\n");
+  const expandGolden = (inkRow: string, topRow = inkRow): string =>
+    Array.from({ length: ROWS }, (_, r) => (r === 6 ? topRow : r >= 7 && r <= 17 ? inkRow : " ".repeat(COLS))).join("\n");
 
   it.each([
-    { label: "a count", levels: 4 as number | readonly number[] | { readonly interval: number }, inkRow: "                             ▕▏   ▕            ▏            " },
-    { label: "an { interval }", levels: { interval: 1000 }, inkRow: "                             ▕|      ▏     ▕      ▏     ▕   " },
-    { label: "an explicit array", levels: [-3000, 2000], inkRow: "                             ▕             ▕                " },
-  ])("declaring no window renders byte-identically to the pinned unwindowed render — $label", ({ levels, inkRow }) => {
+    { label: "a count", levels: 4 as number | readonly number[] | { readonly interval: number }, inkRow: "                             ▕▏   |            ▏            " },
+    { label: "an { interval }", levels: { interval: 1000 }, inkRow: "                             ▕|      ▏     |      ▏     ▕   ", topRow: "                             ▕▏      ▏     |      ▏     ▕   " },
+    { label: "an explicit array", levels: [-3000, 2000], inkRow: "                             ▕             |                " },
+  ])("declaring no window renders byte-identically to the pinned unwindowed render — $label", ({ levels, inkRow, topRow }) => {
     const { host, map } = mount();
     expect(inkRow).toHaveLength(COLS); // the literal must be the real width, trailing spaces included
     map.addLayer({ type: "contour", id: "c", source: stepField(-5000, 0, 4400), levels, color: "#00aaff" });
     map.scene.rerender();
-    expect(map.scene.output.textContent).toBe(expandGolden(inkRow));
+    expect(map.scene.output.textContent).toBe(expandGolden(inkRow, topRow));
     map.destroy();
     host.remove();
   });
