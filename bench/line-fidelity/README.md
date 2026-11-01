@@ -23,6 +23,9 @@ Flags:
 - `--force-rasters` re-measures the glyph masks.
 - `--workers N` sets the worker-thread count. The default is CPUs − 2, capped at 16.
 - `--M 48` sets the DP's per-node label pruning.
+- `--static-only` skips phase 2 (animation + style). `--anim-only` reruns phase 2 against the cached static results (it reuses the fitted tables). `--report-only` rewrites RESULTS.md from `.cache/`.
+
+Phase 2 takes about 15 min on 16 workers; the temporal DP over `all`/`braille` dominates.
 
 Cached masks and the raw `results.json` go to `.cache/`, which is gitignored.
 
@@ -118,6 +121,20 @@ The chain DP is in `oracle.mjs`; its header documents exactly which rubric terms
 Because the decomposition is approximate, the DP is a heuristic optimum. It does not always beat the incumbent. RESULTS.md counts the cases where it loses, and reports **best known** as the per-case minimum over the DP, the table and the incumbents.
 
 **Lookup table.** The key is (16 angle buckets in visual space, band axis, 8 bins of the cell centre's offset from the line along the minor axis). The table puts one glyph, or blank, on each visited cell, with no shift and no DP. It is fit by coordinate descent on the same surrogate over a training subset (lines every 10° plus every curve) and evaluated on every case with the full rubric. That is in-sample for about a quarter of the lines, so treat it as a capacity estimate.
+
+## Phase 2: animation and style
+
+`anim.mjs`, `animWorker.mjs`, `animRun.mjs`, `animReport.mjs`, `style.mjs`.
+
+- **Sequences.** Eight 60-frame sequences: diagonal drift at 0.05 and 0.3 cell/frame (20° and 65°), rotation at 0.5°/frame and 3°/frame, a circle growing r 4 → 8 cw, and a drifting wiggle. Every frame uses one shared grid and is rendered independently. `wire-*` gets a fresh random seed per frame.
+- **Temporal metrics.**
+  - Change rate.
+  - Unjustified flips: a change while the curve inside the cell, grown by ½ cell, moved < 0.1 cell since that cell last changed. It is judged since the last change, not the last frame, so a 0.05 cell/frame drift is not all-unjustified.
+  - A→B→A flicker within 3 frames.
+  - RMS ink-centroid velocity error.
+- **Temporal DP.** This is the static DP plus a causal unary λ·[glyph ≠ previous frame's chosen glyph at that cell], plus λ for vacating a previously inked cell. λ ∈ {0, 0.005, 0.02, 0.08}.
+- **Table hysteresis.** A cell keeps its previous glyph unless the fitted table's glyph beats it by margin m on the surrogate solo cost.
+- **Style.** The fraction of a stroke's cells outside its majority visual family (dots / strokes / blocks / symbols). It is reported beside the static total, never inside it. *DP all + style* runs the DP per majority family with an exact per-cell penalty and keeps the best on total + style.
 
 ## Limits
 

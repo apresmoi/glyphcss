@@ -313,3 +313,305 @@ Pruning sensitivity (same DP, label sets widened from M = 48 to 144, on a fixed 
 | mono | all | 50 | 0.582 | 0.582 | 0 |
 | mono | ink | 50 | 0.720 | 0.720 | 0 |
 
+## Animation
+
+Eight 60-frame sequences per face, every frame rendered independently on one shared grid (as the renderer does): a 12 cw segment drifting diagonally at 0.05 and 0.3 cell/frame (at 20° and 65°), rotating about its centre at 0.5°/frame and 3°/frame, a circle growing r 4 → 8 cw, and a wiggly polyline drifting 0.1 cell/frame. `wire-*` redraw `Math.random()` per frame (a fresh seed per frame), as a live scene does.
+
+Temporal metrics (separate from the static rubric; lower is better):
+
+- **change rate**: changed cells per frame ÷ non-blank cells in that frame.
+- **unjustified / frame**: cell glyph changes while the true curve inside that cell (grown by ½ cell) moved < 0.1 cell since the cell last changed. Motion is the farthest any curve point there lies from the other frame's curve, so sliding along itself counts as no motion. Judging against the last change, not the last frame, keeps a slow drift (0.05 cell/frame, always < 0.1 per frame) from making every change unjustified.
+- **flicker / frame**: A→B→A (or A→B→·→A) returns within 3 frames, per cell.
+- **centroid jitter**: RMS over frames of |ink-centroid velocity − true-curve-centroid velocity|, in cw per frame.
+
+### Current strategies (mean over sequences, site face)
+
+| strategy | face | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|---|
+| maps-ink | atlas | 1.168 | 0.396 | 0.17 | 0.26 | 0.343 |
+| maps-box | atlas | 1.838 | 0.351 | 0.18 | 0.13 | 0.292 |
+| maps-braille | atlas | 0.707 | 0.708 | 2.56 | 0.17 | 0.192 |
+| scene-ink | atlas | 1.166 | 0.426 | 0.20 | 0.36 | 0.306 |
+| wire-default | atlas | 2.435 | 1.118 | 9.36 | 1.16 | 0.927 |
+| wire-junctions | atlas | 2.412 | 1.036 | 6.64 | 0.89 | 0.920 |
+| wire-braille | atlas | 0.873 | 0.626 | 1.96 | 0.38 | 0.144 |
+| canvas-box | mono | 3.019 | 0.358 | 0.13 | 0.17 | 0.330 |
+| canvas-braille | mono | 0.725 | 0.635 | 2.06 | 0.32 | 0.164 |
+
+Unjustified flips per frame by sequence kind:
+
+| strategy | drift-slow | rotate-slow | rotate-fast | scale | wiggle | drift-fast |
+|---|---|---|---|---|---|---|
+| maps-ink | 0.13 | 0.25 | 0.08 | 0.51 | 0.29 | 0.00 |
+| maps-box | 0.12 | 0.14 | 0.05 | 0.80 | 0.22 | 0.00 |
+| maps-braille | 2.19 | 0.98 | 0.25 | 10.20 | 4.63 | 0.00 |
+| scene-ink | 0.24 | 0.31 | 0.15 | 0.46 | 0.19 | 0.00 |
+| wire-default | 9.35 | 11.46 | 2.29 | 33.56 | 8.92 | 0.00 |
+| wire-junctions | 9.35 | 11.46 | 2.29 | 13.86 | 6.81 | 0.00 |
+| wire-braille | 1.53 | 1.98 | 1.22 | 6.75 | 2.66 | 0.00 |
+| canvas-box | 0.05 | 0.22 | 0.03 | 0.47 | 0.19 | 0.00 |
+| canvas-braille | 0.95 | 1.05 | 1.05 | 10.24 | 2.24 | 0.00 |
+
+### Worst sequences
+
+| strategy | most unjustified flips | most flicker |
+|---|---|---|
+| maps-ink | circle r4→8: 0.51/frame | drift-fast 65°: 1.19/frame |
+| maps-box | circle r4→8: 0.80/frame | drift-fast 20°: 0.22/frame |
+| maps-braille | circle r4→8: 10.20/frame | wiggle drift 0.1: 0.58/frame |
+| scene-ink | drift-slow 20°: 0.47/frame | drift-fast 65°: 1.56/frame |
+| wire-default | circle r4→8: 33.56/frame | circle r4→8: 2.80/frame |
+| wire-junctions | circle r4→8: 13.86/frame | drift-fast 65°: 1.32/frame |
+| wire-braille | circle r4→8: 6.75/frame | rotate-fast 3°/f: 1.24/frame |
+| canvas-box | circle r4→8: 0.47/frame | drift-fast 20°: 0.81/frame |
+| canvas-braille | circle r4→8: 10.24/frame | rotate-fast 3°/f: 1.25/frame |
+
+### Trade-off: static score vs temporal stability
+
+Temporal DP: each frame's DP adds λ per cell whose glyph differs from the PREVIOUS frame's chosen solution (online, causal, no lookahead). Leaving a cell the last frame inked also costs λ, but a cell no node visits any more cannot be charged inside the chain model. The rounds are selected on total + λ·changes. Table + hysteresis: the fitted lookup table, but a cell keeps its previous glyph unless the table's glyph beats it by margin m on the surrogate's solo cost. λ and m are in rubric-total units per cell; a typical stroke totals 0.6–1.2 over ~14–40 cells.
+
+**atlas · ink**
+
+| variant | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|
+| current maps-ink | 1.168 | 0.396 | 0.17 | 0.26 | 0.343 |
+| current scene-ink | 1.166 | 0.426 | 0.20 | 0.36 | 0.306 |
+| DP λ = 0 | 0.784 | 0.491 | 0.32 | 0.38 | 0.259 |
+| DP λ = 0.005 | 0.802 | 0.424 | 0.17 | 0.30 | 0.246 |
+| DP λ = 0.02 | 0.836 | 0.382 | 0.08 | 0.30 | 0.253 |
+| DP λ = 0.08 | 1.101 | 0.346 | 0.01 | 0.29 | 0.276 |
+| table, margin 0 | 0.968 | 0.478 | 0.10 | 0.38 | 0.400 |
+| table, margin 0.005 | 0.956 | 0.382 | 0.05 | 0.23 | 0.395 |
+| table, margin 0.02 | 0.971 | 0.371 | 0.03 | 0.22 | 0.403 |
+| table, margin 0.08 | 1.173 | 0.336 | 0.01 | 0.18 | 0.385 |
+
+**atlas · box**
+
+| variant | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|
+| current maps-box | 1.838 | 0.351 | 0.18 | 0.13 | 0.292 |
+| current wire-junctions | 2.412 | 1.036 | 6.64 | 0.89 | 0.920 |
+| DP λ = 0 | 1.437 | 0.480 | 0.56 | 0.60 | 0.272 |
+| DP λ = 0.005 | 1.436 | 0.454 | 0.27 | 0.39 | 0.286 |
+| DP λ = 0.02 | 1.474 | 0.418 | 0.12 | 0.27 | 0.281 |
+| DP λ = 0.08 | 1.888 | 0.335 | 0.02 | 0.21 | 0.326 |
+| table, margin 0 | 1.637 | 0.434 | 0.11 | 0.43 | 0.377 |
+| table, margin 0.005 | 1.591 | 0.370 | 0.05 | 0.18 | 0.356 |
+| table, margin 0.02 | 1.617 | 0.360 | 0.03 | 0.17 | 0.378 |
+| table, margin 0.08 | 1.965 | 0.300 | 0.01 | 0.10 | 0.398 |
+
+**atlas · braille**
+
+| variant | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|
+| current maps-braille | 0.707 | 0.708 | 2.56 | 0.17 | 0.192 |
+| current wire-braille | 0.873 | 0.626 | 1.96 | 0.38 | 0.144 |
+| DP λ = 0 | 0.792 | 0.638 | 1.09 | 0.41 | 0.233 |
+| DP λ = 0.005 | 0.793 | 0.579 | 0.38 | 0.22 | 0.227 |
+| DP λ = 0.02 | 0.852 | 0.514 | 0.12 | 0.24 | 0.238 |
+| DP λ = 0.08 | 1.269 | 0.401 | 0.02 | 0.27 | 0.240 |
+| table, margin 0 | 1.055 | 0.574 | 0.22 | 0.49 | 0.379 |
+| table, margin 0.005 | 1.047 | 0.470 | 0.08 | 0.16 | 0.396 |
+| table, margin 0.02 | 1.109 | 0.435 | 0.06 | 0.15 | 0.388 |
+| table, margin 0.08 | 1.478 | 0.328 | 0.01 | 0.17 | 0.392 |
+
+**atlas · all**
+
+| variant | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|
+| current wire-default | 2.435 | 1.118 | 9.36 | 1.16 | 0.927 |
+| DP λ = 0 | 0.688 | 0.648 | 1.23 | 0.34 | 0.225 |
+| DP λ = 0.005 | 0.696 | 0.583 | 0.42 | 0.20 | 0.223 |
+| DP λ = 0.02 | 0.783 | 0.471 | 0.11 | 0.16 | 0.216 |
+| DP λ = 0.08 | 1.138 | 0.375 | 0.02 | 0.25 | 0.257 |
+| table, margin 0 | 0.914 | 0.577 | 0.25 | 0.20 | 0.363 |
+| table, margin 0.005 | 0.872 | 0.482 | 0.12 | 0.04 | 0.368 |
+| table, margin 0.02 | 0.923 | 0.456 | 0.06 | 0.04 | 0.373 |
+| table, margin 0.08 | 1.313 | 0.361 | 0.01 | 0.03 | 0.359 |
+
+**mono · ink**
+
+| variant | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|
+| current canvas-box | 3.019 | 0.358 | 0.13 | 0.17 | 0.330 |
+| DP λ = 0 | 0.756 | 0.473 | 0.41 | 0.46 | 0.297 |
+| DP λ = 0.005 | 0.761 | 0.446 | 0.17 | 0.31 | 0.273 |
+| DP λ = 0.02 | 0.805 | 0.412 | 0.04 | 0.30 | 0.262 |
+| DP λ = 0.08 | 1.134 | 0.357 | 0.02 | 0.31 | 0.303 |
+| table, margin 0 | 0.987 | 0.523 | 0.10 | 0.40 | 0.420 |
+| table, margin 0.005 | 0.924 | 0.436 | 0.05 | 0.26 | 0.411 |
+| table, margin 0.02 | 0.936 | 0.423 | 0.04 | 0.24 | 0.416 |
+| table, margin 0.08 | 1.136 | 0.390 | 0.02 | 0.21 | 0.398 |
+
+**mono · box**
+
+| variant | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|
+| DP λ = 0 | 1.456 | 0.509 | 0.76 | 0.72 | 0.347 |
+| DP λ = 0.005 | 1.458 | 0.466 | 0.32 | 0.37 | 0.335 |
+| DP λ = 0.02 | 1.484 | 0.437 | 0.13 | 0.27 | 0.316 |
+| DP λ = 0.08 | 1.890 | 0.357 | 0.04 | 0.24 | 0.358 |
+| table, margin 0 | 1.550 | 0.455 | 0.13 | 0.42 | 0.381 |
+| table, margin 0.005 | 1.509 | 0.380 | 0.06 | 0.17 | 0.364 |
+| table, margin 0.02 | 1.555 | 0.365 | 0.06 | 0.16 | 0.363 |
+| table, margin 0.08 | 1.933 | 0.295 | 0.01 | 0.08 | 0.371 |
+
+**mono · braille**
+
+| variant | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|
+| current canvas-braille | 0.725 | 0.635 | 2.06 | 0.32 | 0.164 |
+| DP λ = 0 | 0.833 | 0.643 | 1.05 | 0.25 | 0.217 |
+| DP λ = 0.005 | 0.843 | 0.587 | 0.44 | 0.08 | 0.192 |
+| DP λ = 0.02 | 0.915 | 0.496 | 0.11 | 0.13 | 0.220 |
+| DP λ = 0.08 | 1.327 | 0.386 | 0.03 | 0.18 | 0.270 |
+| table, margin 0 | 1.039 | 0.580 | 0.21 | 0.21 | 0.338 |
+| table, margin 0.005 | 1.026 | 0.497 | 0.07 | 0.11 | 0.356 |
+| table, margin 0.02 | 1.063 | 0.461 | 0.06 | 0.10 | 0.355 |
+| table, margin 0.08 | 1.443 | 0.352 | 0.02 | 0.08 | 0.380 |
+
+**mono · all**
+
+| variant | static total | change rate | unjustified / frame | flicker / frame | centroid jitter (cw) |
+|---|---|---|---|---|---|
+| DP λ = 0 | 0.664 | 0.657 | 1.75 | 0.68 | 0.271 |
+| DP λ = 0.005 | 0.673 | 0.571 | 0.37 | 0.20 | 0.260 |
+| DP λ = 0.02 | 0.763 | 0.479 | 0.04 | 0.17 | 0.264 |
+| DP λ = 0.08 | 1.157 | 0.371 | 0.01 | 0.25 | 0.288 |
+| table, margin 0 | 0.893 | 0.563 | 0.23 | 0.12 | 0.382 |
+| table, margin 0.005 | 0.893 | 0.471 | 0.13 | 0.04 | 0.379 |
+| table, margin 0.02 | 0.939 | 0.436 | 0.06 | 0.04 | 0.386 |
+| table, margin 0.08 | 1.339 | 0.371 | 0.03 | 0.03 | 0.397 |
+
+### Recommended settings
+
+Rule: the largest λ (or m) whose mean static total stays within 5 % of the same method at λ = 0 (m = 0). The table shows what it buys.
+
+| face / family | DP λ | unjustified / frame (λ=0 → λ) | flicker / frame | static total | table margin m | unjustified / frame (m=0 → m) | flicker / frame | static total |
+|---|---|---|---|---|---|---|---|---|
+| atlas/ink | 0.005 | 0.32 → 0.17 | 0.38 → 0.30 | 0.784 → 0.802 | 0.02 | 0.10 → 0.03 | 0.38 → 0.22 | 0.968 → 0.971 |
+| atlas/box | 0.02 | 0.56 → 0.12 | 0.60 → 0.27 | 1.437 → 1.474 | 0.02 | 0.11 → 0.03 | 0.43 → 0.17 | 1.637 → 1.617 |
+| atlas/braille | 0.005 | 1.09 → 0.38 | 0.41 → 0.22 | 0.792 → 0.793 | 0.005 | 0.22 → 0.08 | 0.49 → 0.16 | 1.055 → 1.047 |
+| atlas/all | 0.005 | 1.23 → 0.42 | 0.34 → 0.20 | 0.688 → 0.696 | 0.02 | 0.25 → 0.06 | 0.20 → 0.04 | 0.914 → 0.923 |
+| mono/ink | 0.005 | 0.41 → 0.17 | 0.46 → 0.31 | 0.756 → 0.761 | 0.02 | 0.10 → 0.04 | 0.40 → 0.24 | 0.987 → 0.936 |
+| mono/box | 0.02 | 0.76 → 0.13 | 0.72 → 0.27 | 1.456 → 1.484 | 0.02 | 0.13 → 0.06 | 0.42 → 0.16 | 1.550 → 1.555 |
+| mono/braille | 0.005 | 1.05 → 0.44 | 0.25 → 0.08 | 0.833 → 0.843 | 0.02 | 0.21 → 0.06 | 0.21 → 0.10 | 1.039 → 1.063 |
+| mono/all | 0.005 | 1.75 → 0.37 | 0.68 → 0.20 | 0.664 → 0.673 | 0.005 | 0.23 → 0.13 | 0.12 → 0.04 | 0.893 → 0.893 |
+
+Temporal DP cost per frame: atlas/ink 195.51 ms, atlas/box 193.69 ms, atlas/braille 599.89 ms, atlas/all 711.80 ms, mono/ink 159.81 ms, mono/box 159.97 ms, mono/braille 583.10 ms, mono/all 1015.75 ms.
+
+### Frame strips (verbatim, 6 consecutive frames, shared crop)
+
+**drift-slow 20°** (atlas) — current maps-ink vs temporal DP ink at λ = 0.005
+
+```text
+current maps-ink
+#20          │ #21          │ #22          │ #23          │ #24          │ #25         
+         __- │           _- │           _- │           _- │           __ │            _
+      _-▔    │       _-▔‾   │       _--‾   │       __-▔‾  │       __-▔‾  │       __-▔‾
+ _--▔‾       │  _--▔‾       │  __-▔‾       │  __-▔‾       │  __-▔‾       │  __--‾
+‾            │ ‾            │ ‾            │ ‾            │ ‾            │ ▔
+
+DP ink λ=0.005
+#20          │ #21          │ #22          │ #23          │ #24          │ #25         
+          _- │           _- │           _- │           _- │           __ │            _
+     _---‾   │      __--‾   │      __--‾   │       _--‾   │       _--‾   │       _---‾
+__--‾        │  _--‾        │  _--‾        │  _---‾       │  __--‾       │  __--‾
+             │ ‾            │ ‾            │ ‾            │ ‾            │
+```
+
+**rotate-slow 0.5°/f** (atlas) — current maps-braille vs temporal DP braille at λ = 0.005
+
+```text
+current maps-braille
+#20          │ #21          │ #22          │ #23          │ #24          │ #25         
+        ⣀⡠⠔⠊ │         ⣀⠤⠔⠋ │         ⣀⠤⠔⠋ │         ⣀⠤⠒⠉ │         ⣀⠤⠒⠉ │         ⣀⠤⠚⠉
+   ⢀⡠⠤⠒⠉     │    ⢀⣀⠤⠚⠉     │    ⢀⣀⠤⠚⠉     │    ⢀⣀⠤⠚⠉     │    ⢀⣀⠤⠚⠉     │     ⣀⠤⠚⠉
+⠠⠔⠋⠁         │ ⠠⠔⠊⠁         │ ⠠⠔⠊⠁         │ ⠠⠤⠚⠁         │ ⢀⠤⠚⠁         │ ⢀⠤⠚⠉
+
+DP braille λ=0.005
+#20          │ #21          │ #22          │ #23          │ #24          │ #25         
+        ⣀⠤⠒⠒ │         ⣀⠤⠒⠊ │         ⣀⠤⠒⠊ │         ⣀⠤⠒⠊ │         ⣀⠤⠒⠊ │         ⡠⠤⠒⠊
+   ⣀⡠⠤⠒⠉     │    ⣀⡠⠤⠒⠉     │    ⣀⡠⠤⠒⠉     │     ⡠⠤⠒⠉     │     ⡠⠤⠒⠉     │     ⡠⠤⠒⠉
+⠠⠒⠉          │ ⠠⠒⠊          │ ⠠⠔⠊          │ ⠠⠔⠊⠉         │ ⠠⠔⠊⠉         │ ⠠⠔⠊⠉
+```
+
+**circle r4→8** (atlas) — current maps-box vs temporal DP box at λ = 0.02
+
+```text
+current maps-box
+#30            │ #31            │ #32            │ #33            │ #34            │ #35           
+    ┌─────┐    │     ┌─────┐    │     ┌─────┐    │     ┌─────┐    │     ┌─────┐    │     ┌─────┐
+  ┌─┘     └─┐  │   ┌─┘     └─┐  │   ┌─┘     └─┐  │   ┌─┘     └─┐  │   ┌─┘     └─┐  │   ┌─┘     └─┐
+ ┌┘         │  │  ┌┘         │  │  ┌┘         └┐ │  ┌┘         └┐ │  ┌┘         └┐ │  ┌┘         └┐
+ │          └┐ │  │          └┐ │  │           │ │  │           │ │ ┌┘           │ │ ┌┘           │
+ │           │ │  │           │ │  │           │ │  │           │ │ └┐           │ │ │            │
+ │          ┌┘ │  │          ┌┘ │  │          ┌┘ │  │          ┌┘ │  │          ┌┘ │ └┐          ┌┘
+ └─┐       ┌┘  │  └─┐       ┌┘  │  └┐        ┌┘  │  └┐        ┌┘  │  └┐        ┌┘  │  └┐        ┌┘
+   └───────┘   │    └───────┘   │   └────────┘   │   └────────┘   │   └───┐┌───┘   │   └──┐  ┌──┘
+               │                │                │                │       └┘       │      └──┘
+
+DP box λ=0.02
+#30            │ #31            │ #32            │ #33            │ #34            │ #35           
+     ────      │      ─────     │      ─────     │      ─────     │     ┌─────     │     ┌─────
+   ┌─    ·─┐   │    ┌·     ─┐   │    ┘·     ─┐   │    ┘·     ─┐   │    ┘      ─┐   │   ┌┘      ·┐
+  ┘         ┐  │   ┘         │  │   ┘         │  │  ┌┘         │  │  ┌┘         │  │  ┌·         └
+ │          └  │  │           │ │  │           │ │  │           │ │  │           │ │  ┘           │
+ │           │ │  │           │ │  │           │ │  │           │ │ └┐           │ │ │            │
+ └          ┌  │  ┐          ┌┘ │  ┐          ┌┘ │  ┐          ┌┘ │  ┐          ┌┘ │  ┐           ┘
+  └┐       ┌   │   └┐       ┌   │   └        ┌   │   ┐        ┌   │   ┐        ┌┘  │   ┐        ┌┘
+    ──────┘    │     ──────┘    │    └──────┘    │    └──────┘    │    └──────┘    │    └─── ───
+               │                │                │                │                │        ─
+```
+
+## Style consistency
+
+`style` = fraction of a stroke's non-blank cells outside its majority visual family (dots = braille and · •; strokes = ASCII punctuation, box drawing, ‾ ▔ ▁ ▏ ▕; blocks; symbols). It is reported next to the static rubric and is NOT in its total (static numbers stay as they were); "+ style" adds 1·style. *DP all + style* runs the DP once per candidate majority family (dots, strokes) with a 1/n unary penalty on off-family glyphs, which is the style term decomposed exactly given the family, and keeps the better on total + style.
+
+| face | variant | static total | style | total + style | dots majority | strokes majority |
+|---|---|---|---|---|---|---|
+| atlas | DP all | 0.636 | 0.245 | 0.880 | 73% | 27% |
+| atlas | DP all + style | 0.643 | 0.000 | 0.643 | 56% | 44% |
+| atlas | current maps-ink | 1.110 | 0.000 | 1.110 | | |
+| atlas | current maps-box | 1.872 | 0.000 | 1.872 | | |
+| atlas | current maps-braille | 0.659 | 0.000 | 0.659 | | |
+| atlas | current scene-ink | 1.143 | 0.000 | 1.143 | | |
+| atlas | current wire-default | 2.409 | 0.050 | 2.459 | | |
+| atlas | current wire-junctions | 2.415 | 0.073 | 2.488 | | |
+| atlas | current wire-braille | 0.827 | 0.000 | 0.827 | | |
+| mono | DP all | 0.623 | 0.229 | 0.852 | 44% | 56% |
+| mono | DP all + style | 0.630 | 0.000 | 0.630 | 45% | 55% |
+| mono | current canvas-box | 2.912 | 0.000 | 2.912 | | |
+| mono | current canvas-braille | 0.651 | 0.000 | 0.651 | | |
+
+**wiggle 0** (atlas): DP all vs DP all + style
+
+```text
+DP all [0.65, style 0.43]
+  `⠑⠢_
+      ‾⠑~⢄
+          ⠑⢄
+            ⠑⢄⢀___⠤⠤_
+              ‾      ‾⠑⠢⢄
+                         \
+                          \
+                          ⢑
+                           ⡇
+                           |
+                           ⠸
+
+DP all + style [0.70, style 0.00]
+  ⣀
+   ⠑⠢⣀
+      ⠉⠑⠢⢄
+          ⠑⢄
+            ⠑⢄⣀⣀⣀⣀⠤⠤⣀
+              ⠈      ⠉⠑⠢⢄
+                         ⢣
+                          ⢇
+                          ⢱
+                           ⣇
+                           ⢸
+                           ⠸
+```
+

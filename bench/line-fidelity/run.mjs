@@ -65,6 +65,7 @@ let meta, results;
 if (animOnly) {
   const { readJson } = await import("./common.mjs");
   ({ meta, results } = readJson(path.join(CACHE, "results.json")));
+  meta.glyphPositions = Object.fromEntries(Object.keys(FACES).map((f) => [f, glyphPositions(faces[f])]));
 } else {
 // 2. Work pool.
 const tasks = [];
