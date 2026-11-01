@@ -6,8 +6,15 @@
 //   chamfer  symmetric mean chamfer distance: ½·(mean over ink of d(ink→P),
 //            coverage-weighted) + ½·(mean over P samples of d(P→nearest ink)).
 //   p95      max of the two directions' 95th percentiles.
-//   gap      fraction of P's arc length with no ink within r = 0.25 cw.
-//   maxGap   longest such uncovered run, in cw.
+//   gap      fraction of P's arc length that is a BREAK: no ink (R ≥ 0.3)
+//            inside a 0.75 cw tube around P projects within ±0.25 cw of arc
+//            length of it. Deliberately not "no ink within 0.25 cw": that
+//            version (kept as the unweighted `gapR` diagnostic) flips a whole
+//            straight run from 0 to 1 when its glyphs sit 0.26 cw off the
+//            line — measured: "_" runs at 0°/offset 0.75 scored gap 1.0 and
+//            maxGap 20 cw, +7 total, for a continuous, merely displaced line.
+//            Displacement is chamfer's job; gap is continuity.
+//   maxGap   longest break, in cw.
 //   stray    fraction of ink mass farther than 0.5 cw from P.
 //   angle    ink orientation vs P's tangent, mean |Δ| in degrees over covered
 //            samples. Orientation = principal axis of the ink's second-moment
@@ -26,7 +33,8 @@
 export const RUBRIC = {
   sampleStep: 0.05, // cw between P samples
   inkThreshold: 0.3,
-  coverRadius: 0.25,
+  coverRadius: 0.25, // gapR radius, and the ± arc tolerance of a break
+  tubeRadius: 0.75,
   strayRadius: 0.5,
   angleHalfWindow: 0.5,
   binLength: 1,
@@ -43,6 +51,7 @@ export const WEIGHTS = {
   stray: 1.0, // per unit fraction
   angle: 1 / 45, // per degree (45° ≙ 1.0)
   cv: 0.5,
+  gapR: 0, // diagnostic only (spec-literal gap); see the gap note above
 };
 
 export const TERMS = Object.keys(WEIGHTS);
@@ -190,9 +199,23 @@ export function score(prep, img) {
     const x = Math.min(W - 1, Math.max(0, Math.floor(samples[k].x))), y = Math.min(H - 1, Math.max(0, Math.floor(samples[k].y)));
     sD[k] = dInk ? Math.min(cap, dInk[y * W + x]) : cap;
   }
+  // gapR (spec-literal): no ink within r of the sample.
+  let nNear = 0, sumSD = 0;
+  for (let k = 0; k < samples.length; k++) { sumSD += sD[k]; if (sD[k] <= RUBRIC.coverRadius * cw) nNear++; }
+  // Breaks: ink in the tube marks the samples within ±r of arc around its nearest P sample.
   const covered = new Uint8Array(samples.length);
-  let nCovered = 0, sumSD = 0;
-  for (let k = 0; k < samples.length; k++) { sumSD += sD[k]; if (sD[k] <= RUBRIC.coverRadius * cw) { covered[k] = 1; nCovered++; } }
+  const kArc = Math.round(RUBRIC.coverRadius / RUBRIC.sampleStep);
+  const tube = RUBRIC.tubeRadius * cw;
+  const rangeOf = (si) => polyRanges[samples[si].poly];
+  for (let i = 0; i < img.length; i++) {
+    if (img[i] < RUBRIC.inkThreshold || dP[i] > tube || idP[i] < 0) continue;
+    const si = idP[i], pr = rangeOf(si), n = pr.end - pr.start;
+    for (let j = -kArc; j <= kArc; j++) {
+      let t = si - pr.start + j;
+      if (pr.closed) t = ((t % n) + n) % n; else if (t < 0 || t >= n) continue;
+      covered[pr.start + t] = 1;
+    }
+  }
   // Gaps (arc-length fraction ≈ sample fraction at uniform spacing) and longest run.
   let maxGap = 0, gapLen = 0, totLen = 0;
   for (const pr of polyRanges) {
@@ -274,6 +297,7 @@ export function score(prep, img) {
     chamfer: (chamferA + chamferB) / 2 / cw,
     p95: Math.max(inkMass > 0 ? percentile(inkD, inkW, 0.95) : cap, percentile(sDarr, null, 0.95)) / cw,
     gap: gapLen / totLen,
+    gapR: 1 - nNear / samples.length,
     maxGap: maxGap / cw,
     stray: inkMass > 0 ? strayMass / inkMass : 0,
     angle: angN ? angSum / angN : 45,

@@ -147,6 +147,7 @@ export async function buildRasters(candidates, { force = false } = {}) {
       const inkOk = ink > 0 || blankByDesign;
       glyphs[g] = { cp: cp(g), advance: mt.advance, W, H, ink: ink / 255, phases: [a.toString("base64")], safe: advOk && inkOk, reason: advOk ? (inkOk ? "ok" : "no ink") : `advance ${mt.advance} != cell ${cellW}` };
     }
+    for (const g of absent) glyphs[g] = { cp: cp(g), safe: false, reason: face === "atlas" ? "not in GlyphCssAtlas" : "not in Glyph Mono cmap (would fall back)" };
     const rec = { key, face, phases: PHASES, family: FACES[face].family, cellW, cellH: r.lineHeight, baseline: r.baseline, padX: PAD_X, padY: PAD_Y, glyphs };
     writeJson(file, rec);
     result[face] = rec;
