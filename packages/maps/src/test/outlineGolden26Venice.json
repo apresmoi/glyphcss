@@ -4,9 +4,9 @@
       "kind": "base",
       "cols": 156,
       "rows": 77,
-      "char": "191155a67e432bc9ef62dd19e51d9eb1ea5902df4cba02f7d51697b1e2c94697",
-      "color": "644180856aa6e6fb9b3cbfddc981821dcbbb7f3832aa03d63c7cc59398b911f6",
-      "depth": "f883eee0bd25d0adb878607ad06faa5216007b8143a0a92d682ebdb9855e4e8d",
+      "char": "bc176a1b803842c565be62f8bb9bef05dd7ca542a605966efa32ac8d2f91ff6d",
+      "color": "3de74f94b7c850a69cb7979dca322daf400cc29cdd1e1f0a2999e832cb2c9fbe",
+      "depth": "52780bb23370faf1fa5e0d35b2e617e8359c25dc7b1d1e7c3d930c69dc4589f7",
       "occluded": null
     }
   ],
@@ -15,9 +15,9 @@
       "kind": "base",
       "cols": 156,
       "rows": 77,
-      "char": "03bc94d29506b6f9c9ddb5a49d7dd6c3f8f6dab784b4014efce6553ff4e521ed",
-      "color": "dc7b2c2a9d5a87e789b0ddab3e756ae9413ae463f4ffe7268d296d4a5cd10acb",
-      "depth": "db922635951b598fc079250672b3f29b44e58766eaf3521973f856a3c43066a8",
+      "char": "7283c25f7375c5a981a5076ff2be7327a530a15820e7a8d543ef4ae93915e65c",
+      "color": "40bf9842f3404a279f642714530b82a241eecbde2785b3216f4e5eb163574c29",
+      "depth": "b8793a36747af63058d03f2458128946768eac08accead186513b490ac1d8c07",
       "occluded": null
     }
   ],
@@ -26,9 +26,9 @@
       "kind": "base",
       "cols": 156,
       "rows": 77,
-      "char": "01298e7185690cae27984a29f5690990dfb31f2cf21a0177ba00e4e159c3880b",
-      "color": "c9b57641efc737c71b9091206f96a5252a5ff131d8c451a9c78b4db1b09a8170",
-      "depth": "6e28a132a92fd9944cdf3d752362ed4f7113dab40c4c7c213f24db636260766a",
+      "char": "efd97d09779e66a66b244791232c12dbda53003c180f3671c3a96ab868b86007",
+      "color": "2a934ad8a11ee75632cf8f15e6e3d7c9bdd25879436d53b08b091d6e1f43b404",
+      "depth": "d425fb38e7b340cd30999f3c6f44af71bddb8eaa2ee7b6917f43b735595fc101",
       "occluded": null
     }
   ],
@@ -37,18 +37,18 @@
       "kind": "base",
       "cols": 156,
       "rows": 77,
-      "char": "c3173629bc45b7801655864b20385d492b01a296d76247591fed423105584c4b",
-      "color": "56c6c67b28ee36a6e5faaa3ea7e4fc0d6850018d8519af0b9a215ed5a1cb6337",
-      "depth": "dccc60e0cc14a5f07f3e873114cbddd0c8975405f075592e9e11dbeb57c85ad7",
+      "char": "b5b0f458a02e14b1dd84d33a1e01ecda9090b3bf88fac67a3199a8d9655f9918",
+      "color": "ee0c654ef065abc3998916195878c94b595e93272f9ff5b11a63f457e1fb684f",
+      "depth": "447fcd37fad8a327d09cf0f93a8a46fc2b74db75e8d92ae47ced6243468c6251",
       "occluded": null
     },
     {
       "kind": "base",
       "cols": 156,
       "rows": 77,
-      "char": "bf819ad84743e28e2fbc12f10572130e8b5b430bfae8229be2d33d6fe4690684",
-      "color": "81b3d1b2cce9b758db7b2b5e6f313aafbfc3d95da62e18c78c903addad4b17a2",
-      "depth": "13f966e82af375ab57a0bb6d846de2f5b658f28ebb80bf27417ab2e29176847d",
+      "char": "5e59fc28b9f7025edb851d2ab56b15aa3eb0de9b8b93c516c40af7e95eb531b1",
+      "color": "5df7a3a7dfb3fe71103dfb46225499f89a26e5372bf5d775e08453251665ebcc",
+      "depth": "22504918ef87b8833df566bcdf6e671d744528d68379bcf899fc887bce06931d",
       "occluded": null
     }
   ],
@@ -57,9 +57,9 @@
       "kind": "base",
       "cols": 156,
       "rows": 77,
-      "char": "bf819ad84743e28e2fbc12f10572130e8b5b430bfae8229be2d33d6fe4690684",
-      "color": "81b3d1b2cce9b758db7b2b5e6f313aafbfc3d95da62e18c78c903addad4b17a2",
-      "depth": "13f966e82af375ab57a0bb6d846de2f5b658f28ebb80bf27417ab2e29176847d",
+      "char": "5e59fc28b9f7025edb851d2ab56b15aa3eb0de9b8b93c516c40af7e95eb531b1",
+      "color": "5df7a3a7dfb3fe71103dfb46225499f89a26e5372bf5d775e08453251665ebcc",
+      "depth": "22504918ef87b8833df566bcdf6e671d744528d68379bcf899fc887bce06931d",
       "occluded": null
     }
   ]
