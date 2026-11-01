@@ -60,9 +60,9 @@ if (task.type === "anim-current") {
   for (const [name, st] of Object.entries(STRATEGIES)) {
     let unavailable = null;
     let frameIdx = 0;
+    const state = {};
     const res = runSequence(seq, (c) => {
-      // Fresh random draw per render, as the scene does (wire-default's tier pick).
-      const cells = st.run(c, fm, 12345 + frameIdx++);
+      const cells = st.run(c, fm, 12345 + frameIdx++, state);
       const miss = cells.filter((x) => !fm.masks.get(x.glyph)?.safe);
       if (miss.length) { unavailable = [...new Set(miss.map((x) => x.glyph))]; return cells.filter((x) => fm.masks.get(x.glyph)?.safe); }
       return cells;

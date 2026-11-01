@@ -66,10 +66,12 @@ const world = (col, row, z = 0) => [row, col, z];
   if (Math.abs(p[0] - 3.25) > 1e-9 || Math.abs(p[1] - 7.5) > 1e-9) throw new Error(`camera mapping assumption broken: ${p}`);
 }
 
-function rasterizeCells(c, fm, opts, seed = 12345) {
+function rasterizeCells(c, fm, opts, seed = 12345, inkLineMemory = null) {
   const grid = { cols: c.cols, rows: c.rows, cellAspect: fm.cellH / fm.cellW, cellWidth: 1, cellHeight: 1, centerCol: 0, centerRow: 0 };
   let captured = null;
   const ctx = g.buildRasterizeContext({ camera, grid, useColors: false, captureCells: (cg) => { captured = cg.char.slice(); }, ...opts });
+  // The live scene hands ink mode the same memory object every frame.
+  if (inkLineMemory) ctx.inkLineMemory = inkLineMemory;
   withSeededRandom(seed, () => g.rasterize(ctx));
   if (!captured) throw new Error("captureCells did not fire");
   return cellsOf(captured, c.cols);
@@ -88,7 +90,9 @@ function wireframe(extra) {
 // along view depth: seen head-on its two long boundary chains project onto
 // the curve itself — the extruded-outline case ink mode exists for. The
 // nearer chain wins every contested cell (equal rank → nearer depth).
-function inkFin(c, fm) {
+// `state` persists across one animated sequence's frames (see animWorker);
+// with `memory`, ink mode keeps last frame's glyphs as the live scene does.
+const inkFin = (memory) => (c, fm, _seed, state) => {
   const polygons = [];
   for (const pts of rings(c)) {
     for (let i = 1; i < pts.length; i++) {
@@ -96,8 +100,8 @@ function inkFin(c, fm) {
       polygons.push({ vertices: [world(a[0], a[1], 0), world(b[0], b[1], 0), world(b[0], b[1], -1), world(a[0], a[1], -1)] });
     }
   }
-  return rasterizeCells(c, fm, { mode: "ink", polygons });
-}
+  return rasterizeCells(c, fm, { mode: "ink", polygons }, 12345, memory && state ? (state.ink ??= { cols: 0, rows: 0, char: [] }) : null);
+};
 
 /**
  * Strategy registry. `face` = the face the site draws this strategy in by
@@ -107,7 +111,8 @@ export const STRATEGIES = {
   "maps-ink": { run: mapsStroke(undefined), face: "atlas", vocab: "ink", where: "@glyphcss/maps line, no experimentalGlyphStrategy (inkGlyphForTangent per sample)" },
   "maps-box": { run: mapsStroke("box"), face: "atlas", vocab: "box", where: "@glyphcss/maps line, experimentalGlyphStrategy \"box\" (/maps?lines=box)" },
   "maps-braille": { run: mapsStroke("braille"), face: "atlas", vocab: "braille", where: "@glyphcss/maps line, experimentalGlyphStrategy \"braille\" (/maps default)" },
-  "scene-ink": { run: inkFin, face: "atlas", vocab: "ink", where: "rasterize mode \"ink\" on a head-on fin mesh (tangent smoothing + inkGlyphForTangent)" },
+  "scene-ink": { run: inkFin(false), face: "atlas", vocab: "ink", where: "rasterize mode \"ink\" on a head-on fin mesh (tangent smoothing + inkGlyphForTangent), every frame on its own" },
+  "scene-ink-held": { run: inkFin(true), face: "atlas", vocab: "ink", where: "scene-ink with the scene's inkLineMemory carried across frames (identical to scene-ink on one frame)" },
   "wire-default": { run: wireframe({}), face: "atlas", vocab: "wire", where: "rasterize mode \"wireframe\", default palette, weight 2 (random tier glyph, seeded)" },
   "wire-junctions": { run: wireframe({ wireframeJunctions: true }), face: "atlas", vocab: "box", where: "wireframe + wireframeJunctions (JUNCTION_GLYPHS on near-axis edges)" },
   "wire-braille": { run: wireframe({ charMode: "braille" }), face: "atlas", vocab: "braille", where: "wireframe charMode \"braille\" (sub-cell dot raster)" },
