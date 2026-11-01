@@ -110,7 +110,7 @@ function maskFile(face) { return path.join(CACHE, `masks-${face}.json`); }
 
 export async function buildRasters(candidates, { force = false } = {}) {
   const ctx = { atlas: atlasJson(), monoCps: woff2CodePoints(path.join(ROOT, "website/public/fonts/glyph-mono.woff2")) };
-  const key = JSON.stringify({ candidates, EM, PAD_X, PAD_Y, v: 5, PHASES });
+  const key = JSON.stringify({ candidates, EM, PAD_X, PAD_Y, v: 6, PHASES });
   const result = {};
   let browser = null;
   for (const face of Object.keys(FACES)) {

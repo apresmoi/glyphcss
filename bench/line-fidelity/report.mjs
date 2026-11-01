@@ -75,31 +75,37 @@ export function writeReport(meta, results, file) {
   p();
 
   // ── Headline ──
+  // best-known(own) = per case, the best of: every current strategy sharing the vocabulary on that face, its table, its DP.
+  const ownOf = (st) => (st.vocab === "wire" ? "all" : st.vocab);
+  const bestKnown = (face, r, v) => {
+    const xs = [r.dp[v]?.score?.total, r.table?.[v]?.score?.total];
+    for (const [n, st] of Object.entries(STRATEGIES)) if (st.face === face && (v === "all" || ownOf(st) === v)) xs.push(r.strategies[n]?.score?.total);
+    if (v === "all") for (const k of Object.keys(VOCABS)) xs.push(r.dp[k]?.score?.total, r.table?.[k]?.score?.total);
+    return Math.min(...xs.filter((x) => x !== undefined));
+  };
+  const famMean = (vals) => mean(FAMILIES.map((fam) => mean(vals(fam))).filter((x) => !Number.isNaN(x)));
+  const bkVals = (face, v, fam) => val(face, (r) => bestKnown(face, r, v), (r) => !fam || r.family === fam);
   p("## Headline: current vs lookup table vs DP oracle");
   p();
-  p("Mean rubric total per test family, each strategy on the face the site draws it in. *table* and *DP (own)* are restricted to the strategy's own glyph family; *DP (all)* may use every safe glyph of that face. Headroom = 1 − DP(own)/current.");
+  p("Family-balanced mean rubric total (the mean of the five family means, so the 720 straight lines do not drown the 29 curves), each strategy on the face the site draws it in. *own* = restricted to the strategy's own glyph family; *all* = every safe glyph of that face. *best known* = per case, the best of the DP, the table and every current strategy in that vocabulary (the DP is a heuristic optimum and does not always beat the incumbent — see the DP section). Headroom = 1 − best known / current.");
   p();
-  p("| strategy | face | vocab | " + FAMILIES.map((f) => `${f} cur / table / DP own / DP all`).join(" | ") + " | headroom own | headroom all |");
-  p("|---|---|---|" + FAMILIES.map(() => "---").join("|") + "|---|---|");
-  const headline = [];
+  p("| strategy | face | vocab | current | table (own) | DP (own) | best known (own) | DP (all) | best known (all) | headroom own | headroom all |");
+  p("|---|---|---|---|---|---|---|---|---|---|---|");
   for (const [name, st] of Object.entries(STRATEGIES)) {
-    const face = st.face, v = st.vocab === "wire" ? "all" : st.vocab;
-    const cells = FAMILIES.map((fam) => {
-      const cur = mean(stratVals(face, name, fam));
-      return `${f2(cur)} / ${f2(mean(tabVals(face, v, fam)))} / ${f2(mean(dpVals(face, v, fam)))} / ${f2(mean(dpVals(face, "all", fam)))}`;
-    });
-    // Overall = mean of family means (lines would otherwise dominate 720 : 29).
-    const fm = (vals) => mean(FAMILIES.map((fam) => mean(vals(fam))).filter((x) => !Number.isNaN(x)));
-    const cur = fm((fam) => stratVals(face, name, fam)), own = fm((fam) => dpVals(face, v, fam)), all = fm((fam) => dpVals(face, "all", fam));
-    headline.push({ name, face, v, cur, own, all, table: fm((fam) => tabVals(face, v, fam)) });
-    p(`| ${name} | ${face} | ${v} | ${cells.join(" | ")} | ${pct(1 - own / cur)} | ${pct(1 - all / cur)} |`);
+    const face = st.face, v = ownOf(st);
+    const cur = famMean((fam) => stratVals(face, name, fam));
+    const bo = famMean((fam) => bkVals(face, v, fam)), ba = famMean((fam) => bkVals(face, "all", fam));
+    p(`| ${name} | ${face} | ${v} | ${f3(cur)} | ${f3(famMean((fam) => tabVals(face, v, fam)))} | ${f3(famMean((fam) => dpVals(face, v, fam)))} | ${f3(bo)} | ${f3(famMean((fam) => dpVals(face, "all", fam)))} | ${f3(ba)} | ${pct(1 - bo / cur)} | ${pct(1 - ba / cur)} |`);
   }
   p();
-  p("Family-balanced means (mean of the five family means):");
+  p("Per family — current → best known (own) / best known (all):");
   p();
-  p("| strategy | current | table (own) | DP (own) | DP (all) |");
-  p("|---|---|---|---|---|");
-  for (const h of headline) p(`| ${h.name} | ${f3(h.cur)} | ${f3(h.table)} | ${f3(h.own)} | ${f3(h.all)} |`);
+  p("| strategy | " + FAMILIES.join(" | ") + " |");
+  p("|---|" + FAMILIES.map(() => "---").join("|") + "|");
+  for (const [name, st] of Object.entries(STRATEGIES)) {
+    const face = st.face, v = ownOf(st);
+    p(`| ${name} | ${FAMILIES.map((fam) => `${f2(mean(stratVals(face, name, fam)))} → ${f2(mean(bkVals(face, v, fam)))} / ${f2(mean(bkVals(face, "all", fam)))}`).join(" | ")} |`);
+  }
   p();
 
   // ── Terms ──
