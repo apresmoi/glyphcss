@@ -2010,7 +2010,10 @@ export function createGlyphScene(
     ctx.shadeCache = nextShadeCache;
     ctx.textureSamplers = resolvedTextureSamplers();
     if (options.glyphOutput === "visible") ctx.temporalHistory = nextTemporalHistory;
-    ctx.inkLineMemory = inkLineMemory;
+    // Staged like the shade cache: ink mode writes this frame's lines into
+    // the copy, and only a published render makes them last frame's.
+    const nextInkLineMemory: InkLineMemory = { ...inkLineMemory };
+    ctx.inkLineMemory = nextInkLineMemory;
     // Base layer maps its internal (supersampled) cell 1:1 onto the id-map (also
     // built at ss): colScale=ss cancels the mask's 1/ss, so internal cell → id-map cell.
     ctx.occlusion = occShared
@@ -2103,6 +2106,7 @@ export function createGlyphScene(
       retained: options.glyphOutput === "visible" ? (collectingEffectOutputs ?? new Map()) : null,
     });
     publishRendererState(nextShadeCache, nextTemporalHistory);
+    Object.assign(inkLineMemory, nextInkLineMemory);
     semanticCellFrame = nextSemanticCellFrame;
     lastOcclusionSnapshot = occShared;
     effectDirty = false;

@@ -626,7 +626,7 @@ export function stampGlyphMapPolyline(
     }
     if (iFrom > iTo) { breakPath(); continue; }
     for (let i = iFrom; i <= iTo; i++) {
-      const t = i / cells;
+      let t = i / cells;
       let col = a.col + dCol * t;
       let row = a.row + dRow * t;
       // Ink lands where the line truly crosses each major column (see
@@ -644,6 +644,9 @@ export function stampGlyphMapPolyline(
         col = inkCell[0] + inkCell[2];
         row = inkCell[1] + inkCell[3];
       }
+      // Depth and slack follow the point actually drawn, or a stroke on a
+      // sloped surface is tested at a depth from up to half a cell away.
+      if ((braille || !graph) && (dCol !== 0 || dRow !== 0)) t = Math.min(1, Math.max(0, Math.abs(dCol) >= Math.abs(dRow) ? (col - a.col) / dCol : (row - a.row) / dRow));
       const colI = Math.floor(col);
       const rowI = Math.floor(row);
       if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) { breakPath(); continue; }

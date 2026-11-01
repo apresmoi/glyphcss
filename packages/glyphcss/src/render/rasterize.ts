@@ -1894,7 +1894,10 @@ function rasterizeInk(
       const cx = inkCell[0], cy = inkCell[1];
       if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) continue;
       const idx = cy * cols + cx;
-      const z = seg.fromZ + dz * t;
+      // Depth at the point actually drawn, not the raw sample up to half a
+      // cell away, so occlusion and the equal-rank tie-break test the ink.
+      const ts = dx === 0 && dy === 0 ? t : Math.min(1, Math.max(0, Math.abs(dx) >= Math.abs(dy) ? (cx + inkCell[2] - a[0]) / dx : (cy + inkCell[3] - a[1]) / dy));
+      const z = seg.fromZ + dz * ts;
       // `hiddenLines: "hide"`: skip this SAMPLE (not the whole segment) when
       // a different, nearer surface occludes it — see `buildInkOcclusionMap`.
       // The winning face is exempt when it's within this edge's own local

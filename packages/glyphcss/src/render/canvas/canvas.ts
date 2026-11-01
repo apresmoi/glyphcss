@@ -848,7 +848,9 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
           // `inkGlyphForTangent` wants the offset from that cell's top/left
           // edge, measured against the walk's own cell.
           const rawInk = inkGlyphForTangent(dx, dy, py + 0.5 - cy, px + 0.5 - cx, 1 / cellAspect, tierTable.lineVocab);
-          if (!rawInk) continue;
+          // A blank answer leaves a corner-clipped cell to its neighbours,
+          // unless the stroke is wide and fills its whole footprint anyway.
+          if (!rawInk && width < 2) continue;
           baseGlyph = rawInk === "·" ? tierTable.dot : rawInk;
           if (style === "double" && !loggedDoubleDiagonal) {
             loggedDoubleDiagonal = true;
