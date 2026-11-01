@@ -248,7 +248,11 @@ function assemble(nodes, choice) {
  * Viterbi over pruned label sets. rescore(cells) → full rubric total; the best
  * of the Dinkelbach rounds is returned.
  */
-export function dpSolve(ctx, gp, vocab, refMassPerCw, rescore, { M = 48, rounds = 3 } = {}) {
+/**
+ * Optional `extra(i, lc)` adds a per-label unary cost (temporal coherence,
+ * style); `objective(score, cells)` picks among rounds (default: rubric total).
+ */
+export function dpSolve(ctx, gp, vocab, refMassPerCw, rescore, { M = 48, rounds = 3, extra = null, objective = (sc) => sc.total } = {}) {
   const { nodes } = ctx;
   const f = coverCostFn(ctx);
   const all = nodes.map((nd, i) => labelsFor(ctx, nd, vocab).map((lab) => labelCost(ctx, gp, i, lab)));
@@ -261,7 +265,7 @@ export function dpSolve(ctx, gp, vocab, refMassPerCw, rescore, { M = 48, rounds 
     const sets = all.map((lcs, i) => {
       const nd = nodes[i];
       const scored = lcs.map((lc) => {
-        let s = unaryOf(ctx, nd, lc, mref, rho, n);
+        let s = unaryOf(ctx, nd, lc, mref, rho, n) + (extra ? extra(i, lc) : 0);
         lc.dFirst.forEach((d, k) => { s += f(d, lc.cFirst[k]); });
         lc.dSecond.forEach((d, k) => { s += f(d, lc.cSecond[k]); });
         return { lc, solo: s, u: 0 };
@@ -270,7 +274,7 @@ export function dpSolve(ctx, gp, vocab, refMassPerCw, rescore, { M = 48, rounds 
       const rest = scored.slice(1).sort((a, b) => a.solo - b.solo).slice(0, M);
       const keep = [blank, ...rest];
       for (const k of keep) {
-        let u = unaryOf(ctx, nd, k.lc, mref, rho, n);
+        let u = unaryOf(ctx, nd, k.lc, mref, rho, n) + (extra ? extra(i, k.lc) : 0);
         // Samples with no pair partner (chain ends) are charged to their own node.
         const hasPrev = i > 0 && nodes[i - 1].linkNext;
         if (!hasPrev) k.lc.dFirst.forEach((d, j) => { u += f(d, k.lc.cFirst[j]); });
@@ -308,7 +312,8 @@ export function dpSolve(ctx, gp, vocab, refMassPerCw, rescore, { M = 48, rounds 
     for (let i = n - 1; i >= 0; i--) { choice[i] = sets[i][bi].lc; if (i > 0) bi = back[i - 1][bi]; }
     const asm = assemble(nodes, choice);
     const total = rescore(asm.cells);
-    if (!best || total.total < best.score.total) best = { ...asm, score: total, round, surrogate: cost.reduce((m, x) => Math.min(m, x), Infinity) };
+    const obj = objective(total, asm.cells);
+    if (!best || obj < best.objective) best = { ...asm, score: total, objective: obj, round, surrogate: cost.reduce((m, x) => Math.min(m, x), Infinity) };
     // Re-estimate the ink normaliser from this solution.
     const mass = choice.reduce((s, lc) => s + lc.mass, 0);
     if (mass <= 0) break;
@@ -320,6 +325,18 @@ export function dpSolve(ctx, gp, vocab, refMassPerCw, rescore, { M = 48, rounds 
   best.M = M;
   best.n = n;
   return best;
+}
+
+/** Solo surrogate cost of glyph g at node i, δ = 0 (unary + its own samples alone) — the table's hysteresis compares two glyphs with it. */
+export function soloCost(ctx, gp, i, g, refMassPerCw) {
+  const nd = ctx.nodes[i];
+  const lc = labelCost(ctx, gp, i, g === " " ? BLANK : { g, dc: 0, dr: 0 });
+  const rho = refMassPerCw / ctx.fm.cellW;
+  const f = coverCostFn(ctx);
+  let s = unaryOf(ctx, nd, lc, rho * ctx.L, rho, ctx.nodes.length);
+  lc.dFirst.forEach((d, k) => { s += f(d, lc.cFirst[k]); });
+  lc.dSecond.forEach((d, k) => { s += f(d, lc.cSecond[k]); });
+  return s;
 }
 
 // ── Lookup-table baseline ────────────────────────────────────────────────

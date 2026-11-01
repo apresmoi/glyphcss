@@ -4,6 +4,7 @@ import { TERMS, WEIGHTS } from "./rubric.mjs";
 import { STRATEGIES } from "./strategies.mjs";
 import { TABLE_ANGLE_BUCKETS, TABLE_OFFSET_BINS } from "./oracle.mjs";
 import { VOCABS } from "./vocab.mjs";
+import { writeAnimationSection } from "./animReport.mjs";
 
 const FAMILIES = ["line", "circle", "arc", "corner", "wiggle"];
 const f3 = (x) => (x === undefined || Number.isNaN(x) ? "–" : x.toFixed(3));
@@ -13,7 +14,7 @@ const mean = (a) => (a.length ? a.reduce((s, x) => s + x, 0) / a.length : NaN);
 const median = (a) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
 const q = (a, p) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.min(s.length - 1, Math.floor(p * s.length))]; };
 
-function gridText(rec, cells) {
+export function gridText(rec, cells) {
   const g = Array.from({ length: rec.rows }, () => Array(rec.cols).fill(" "));
   for (const [c, r, ch] of cells) g[r][c] = ch;
   let lines = g.map((r) => r.join(""));
@@ -22,7 +23,7 @@ function gridText(rec, cells) {
   return lines;
 }
 
-function sideBySide(blocks) {
+export function sideBySide(blocks) {
   // Trim common left margin and pad to equal width; every glyph here is one cell wide.
   const trimmed = blocks.map(({ title, lines }) => {
     const lead = Math.min(...lines.filter((l) => l.trim()).map((l) => l.length - l.trimStart().length));
@@ -35,7 +36,7 @@ function sideBySide(blocks) {
   return out.join("\n");
 }
 
-export function writeReport(meta, results, file) {
+export function writeReport(meta, results, file, anim = null) {
   const L = [];
   const p = (s = "") => L.push(s);
   const byId = {};
@@ -261,5 +262,6 @@ export function writeReport(meta, results, file) {
     }
   }
   p();
+  if (anim) writeAnimationSection(p, anim, results);
   fs.writeFileSync(file, L.join("\n") + "\n");
 }

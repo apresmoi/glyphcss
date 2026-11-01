@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Line-fidelity experiment: rasters → current strategies → table → DP oracle → RESULTS.md.
-//   node bench/line-fidelity/run.mjs [--quick] [--force-rasters] [--workers N] [--M 48] [--report-only]
+//   node bench/line-fidelity/run.mjs [--quick] [--force-rasters] [--workers N] [--M 48] [--report-only] [--static-only] [--anim-only]
 // Needs `pnpm build:packages` first (strategies run from packages/*/dist).
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +11,8 @@ import { buildRasters, extendedCandidates, loadMasks, validateComposite } from "
 import { writeReport } from "./report.mjs";
 import { strategyGlyphs } from "./strategies.mjs";
 import { VOCABS } from "./vocab.mjs";
+import { runAnimation } from "./animRun.mjs";
+import fs from "node:fs";
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -44,7 +46,8 @@ if (flag("--report-only")) {
   const { meta, results } = readJson(path.join(CACHE, "results.json"));
   const recs = await buildRasters([...new Set([...extendedCandidates(), ...strategyGlyphs()])]);
   meta.glyphPositions = Object.fromEntries(Object.keys(FACES).map((f) => [f, glyphPositions(loadMasks(recs[f]))]));
-  writeReport(meta, results, path.join(HERE, "RESULTS.md"));
+  const animFile = path.join(CACHE, "anim.json");
+  writeReport(meta, results, path.join(HERE, "RESULTS.md"), fs.existsSync(animFile) ? readJson(animFile) : null);
   log("rewrote RESULTS.md from .cache/results.json");
   process.exit(0);
 }
@@ -57,6 +60,12 @@ log("rasters ready", Object.entries(recs).map(([f, r]) => `${f}: cell ${r.cellW.
 const validation = await validateComposite(faces);
 log("compositing vs DOM", Object.entries(validation).map(([f, v]) => `${f} relL1 ${(v.relL1 * 100).toFixed(3)}%`).join(", "));
 
+const animOnly = flag("--anim-only");
+let meta, results;
+if (animOnly) {
+  const { readJson } = await import("./common.mjs");
+  ({ meta, results } = readJson(path.join(CACHE, "results.json")));
+} else {
 // 2. Work pool.
 const tasks = [];
 const caseCounts = {};
@@ -74,7 +83,7 @@ for (const face of Object.keys(FACES)) {
 tasks.sort((a, b) => (b.task.type === "table") - (a.task.type === "table"));
 const totalUnits = tasks.reduce((s, t) => s + (t.task.type === "table" ? caseCounts[t.face] : t.task.indices.length), 0);
 let doneUnits = 0, lastLog = 0;
-const results = { cases: {}, tables: {}, sensitivity: {} };
+results = { cases: {}, tables: {}, sensitivity: {} };
 for (const f of Object.keys(FACES)) { results.cases[f] = []; results.tables[f] = {}; results.sensitivity[f] = []; }
 
 await new Promise((resolve, reject) => {
@@ -108,7 +117,7 @@ await new Promise((resolve, reject) => {
 });
 log("all tasks done");
 
-const meta = {
+meta = {
   quick, M, workers,
   faces: Object.fromEntries(Object.entries(recs).map(([f, r]) => [f, {
     label: FACES[f].label, cellW: r.cellW, cellH: r.cellH, baseline: r.baseline, phases: r.phases,
@@ -120,5 +129,14 @@ const meta = {
   runtimeSec: (performance.now() - t0) / 1000,
 };
 writeJson(path.join(CACHE, "results.json"), { meta, results });
-writeReport(meta, results, path.join(HERE, "RESULTS.md"));
+}
+
+// 3. Animation + style consistency (phase 2), reusing the fitted tables.
+let anim = null;
+if (!flag("--static-only")) {
+  anim = await runAnimation(faces, results, { workers, M, log });
+  writeJson(path.join(CACHE, "anim.json"), anim);
+  log("animation done");
+}
+writeReport(meta, results, path.join(HERE, "RESULTS.md"), anim);
 log("wrote", path.join(HERE, "RESULTS.md"));

@@ -66,20 +66,21 @@ const world = (col, row, z = 0) => [row, col, z];
   if (Math.abs(p[0] - 3.25) > 1e-9 || Math.abs(p[1] - 7.5) > 1e-9) throw new Error(`camera mapping assumption broken: ${p}`);
 }
 
-function rasterizeCells(c, fm, opts) {
+function rasterizeCells(c, fm, opts, seed = 12345) {
   const grid = { cols: c.cols, rows: c.rows, cellAspect: fm.cellH / fm.cellW, cellWidth: 1, cellHeight: 1, centerCol: 0, centerRow: 0 };
   let captured = null;
   const ctx = g.buildRasterizeContext({ camera, grid, useColors: false, captureCells: (cg) => { captured = cg.char.slice(); }, ...opts });
-  withSeededRandom(12345, () => g.rasterize(ctx));
+  withSeededRandom(seed, () => g.rasterize(ctx));
   if (!captured) throw new Error("captureCells did not fire");
   return cellsOf(captured, c.cols);
 }
 
 function wireframe(extra) {
-  return (c, fm) => {
+  // `seed`: the tier pick redraws Math.random() every render; animation passes a fresh seed per frame.
+  return (c, fm, seed) => {
     const edges = [];
     for (const pts of rings(c)) for (let i = 1; i < pts.length; i++) edges.push({ from: world(...pts[i - 1]), to: world(...pts[i]) });
-    return rasterizeCells(c, fm, { mode: "wireframe", polygons: [], wireframe: edges, ...extra });
+    return rasterizeCells(c, fm, { mode: "wireframe", polygons: [], wireframe: edges, ...extra }, seed);
   };
 }
 
