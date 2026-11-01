@@ -49,7 +49,9 @@ function densify(table) {
     if (table.has(k)) { out.push(table.get(k)); continue; }
     const t = dec(k);
     let best = " ", bestD = Infinity;
+    const middleBin = Math.abs(t.o + 0.5 - TABLE_OFFSET_BINS / 2) < TABLE_OFFSET_BINS / 4;
     for (const [k2, g] of table) {
+      if (middleBin && g === " ") continue;
       const u = dec(k2);
       const db = Math.min(Math.abs(u.b - t.b), TABLE_ANGLE_BUCKETS - Math.abs(u.b - t.b));
       const d = db * 10 + Math.abs(u.o - t.o) * 3 + (u.ax !== t.ax ? 1 : 0);
@@ -92,7 +94,12 @@ for (const v of VOCABS) {
   const vocab = [...shared].filter(RUNTIME_PICK[v] ?? (() => true));
   const ctxs = faces.flatMap(({ fm, gp, cases }) => cases.filter((x) => isTrain(x.c)).map((x) => Object.assign(caseContext(x.c, fm, x.frame, x.prep), { gp, refMassPerCw: refMassPerCw(fm, v) })));
   const t0 = performance.now();
-  const table = fitTable(ctxs, faces[0].gp, vocab, refMassPerCw(faces[0].fm, v));
+  // The runtime draws exactly one cell per major column, the one the line
+  // crosses (`inkLineCell`): its offset always lands in the middle bins, where
+  // a blank would be a gap, and the outer bins are never drawn. Fit under
+  // that same placement.
+  const middle = (k) => Math.abs((k % TABLE_OFFSET_BINS) + 0.5 - TABLE_OFFSET_BINS / 2) < TABLE_OFFSET_BINS / 4;
+  const table = fitTable(ctxs, faces[0].gp, vocab, refMassPerCw(faces[0].fm, v), { allow: (k, g) => (g === " ") !== middle(k) });
   tables[v] = densify(table);
   console.log(`${v}: fit ${((performance.now() - t0) / 1000).toFixed(1)} s on ${ctxs.length} cases, ${table.size}/${KEYS} keys seen`, JSON.stringify(evaluate(tables[v])));
 }

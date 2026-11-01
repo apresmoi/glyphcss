@@ -1471,11 +1471,21 @@ function normalize2(v: [number, number]): [number, number] {
  * unrelated to this segment (agreement ~= 0) collapses to `segDir` alone —
  * exactly the straight, isolated-segment behavior a hard edge needs.
  */
+/**
+ * Below this agreement (a vertex tangent more than 30° off the segment) the
+ * vertex is a corner, not a sampled curve, and the segment draws straight.
+ * The continuous blend alone still tilts both edges of a right-angle corner
+ * by ~15°, which the line-glyph table resolves into a different glyph (a 45°
+ * edge reads as `-`).
+ */
+const INK_CORNER_COS = Math.cos(Math.PI / 6);
+
 function biasTangentToSegment(vt: [number, number], segDir: [number, number]): [number, number] {
   if (segDir[0] === 0 && segDir[1] === 0) return vt;
   const rawDot = vt[0] * segDir[0] + vt[1] * segDir[1];
   const aligned: [number, number] = rawDot < 0 ? [-vt[0], -vt[1]] : vt;
   const agreement = Math.abs(rawDot);
+  if (agreement < INK_CORNER_COS) return segDir;
   return normalize2([segDir[0] + aligned[0] * agreement, segDir[1] + aligned[1] * agreement]);
 }
 

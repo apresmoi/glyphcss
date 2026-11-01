@@ -634,7 +634,8 @@ export function stampGlyphMapPolyline(
       // braille. Placing it at the raw sample instead ties the drawing to
       // where the walk's samples happen to fall, so a line sliding along
       // itself re-draws differently every frame. The box graph keeps the raw
-      // sample.
+      // sample: it joins accepted cells by connectivity, and snapped cells
+      // can step back across a run and read as a junction.
       if (braille) {
         inkLineCell(col * 2, row * 4, dCol * 2, dRow * 4, inkCell);
         col = (inkCell[0] + inkCell[2]) / 2;

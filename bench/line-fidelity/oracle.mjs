@@ -374,7 +374,7 @@ export function tableCells(ctx, table) {
  * each entry takes the glyph that minimises Σ unary + pair coverage over
  * every training node with that key, holding the other entries fixed.
  */
-export function fitTable(ctxs, gp, vocab, refMassPerCw, { passes = 3 } = {}) {
+export function fitTable(ctxs, gp, vocab, refMassPerCw, { passes = 3, allow = () => true } = {}) {
   const items = ctxs.map((ctx) => {
     // A joint fit over several faces carries each face's glyph prep and ink normaliser on its context.
     const gpc = ctx.gp ?? gp;
@@ -419,6 +419,7 @@ export function fitTable(ctxs, gp, vocab, refMassPerCw, { passes = 3 } = {}) {
       const was = table.get(k);
       let bestG = was, bestC = Infinity;
       for (const g of cands) {
+        if (!allow(k, g)) continue;
         table.set(k, g);
         const c = localCost(members);
         if (c < bestC - 1e-12) { bestC = c; bestG = g; }
