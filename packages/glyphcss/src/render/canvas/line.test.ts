@@ -185,3 +185,18 @@ describe("line(): a diagonal's glyph reads the line's offset from the centre of 
     expect(tail.replace(/[ \n]/g, "").length).toBe(3);
   });
 });
+
+describe("line(): a wide stroke keeps cells the line table leaves blank", () => {
+  it("MUTATION CAUGHT: a width-2 diagonal inks the corner-clipped cell it still passes through, so the stroke has no hole", () => {
+    // (0,0) -> (2,1) at cellAspect 0.5: the table answers blank for the
+    // middle cell (the thin line only clips its corner), but a wide stroke
+    // fills its whole footprint and must still ink (1, 0).
+    const wide = createGlyphCanvas({ cols: 3, rows: 2, tier: "box", cellAspect: 0.5 });
+    wide.line({ x: 0, y: 0 }, { x: 2, y: 1 }, { width: 2 });
+    expect(wide.grid.char[0 * 3 + 1]).not.toBe(" ");
+    // The same line at width 1 still leaves that cell to its neighbours.
+    const thin = createGlyphCanvas({ cols: 3, rows: 2, tier: "box", cellAspect: 0.5 });
+    thin.line({ x: 0, y: 0 }, { x: 2, y: 1 });
+    expect(thin.grid.char[0 * 3 + 1]).toBe(" ");
+  });
+});
