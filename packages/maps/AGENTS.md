@@ -24,7 +24,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Extrusion tile arrival/ground move: mesh + outline topology built sliced (`sliceBuild`), installed whole; a topology compiled ahead is adopted only for identical arrays.
 - `snapPan`: opt-in cell lattice at fixed lens/tilt/bearing/grid; exact held view. Orbit: tangent lattice. Zoom/tilt reset; walk bypasses.
 - Line `sharedArcs: true` dedupes exact polygon edges (either direction) into junction-pinned arcs before live VW; explicit lines stay separate; no snapping of differently sampled edges. An arc carries the properties its contributors agree on. The filter reruns every sweep; topology rebuilds only on a new selection.
-- Stamp surface reconstruction starts at the rasterizer’s integer cell sample, never an assumed half-cell centre. Strokes ink where the line crosses each cell/dot column, at that depth, not at walk samples (they shimmer).
+- Stamp surface reconstruction starts at the rasterizer’s integer cell sample, never an assumed half-cell centre. Strokes ink where the line crosses each cell/dot column, at that depth; walk samples shimmer.
 - Line `simplify: "vw"`: latitude-corrected VW at half a live cell, quarter-octave buckets per line/arc, before clipping/draping; keeps endpoints and collapsed rings. Walk keeps detail. Omitted is byte-identical.
 - Walk mode keys on "walk is active" and the local horizon (`nearSideVisible`), never on a widened projection capability.
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.
