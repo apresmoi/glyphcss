@@ -1,7 +1,8 @@
 import atlasManifest from "../../glyphcss/assets/glyph-atlas/atlas.json";
 import { describe, expect, it } from "vitest";
+import { inkGlyphForTangent } from "glyphcss";
 import type { CellGrid } from "glyphcss";
-import { createGlyphMapBoxStrokeGraph, finishGlyphMapBoxStrokeGraph, stampGlyphMapPolyline, type GlyphMapStrokeVertex, type GlyphMapStrokeGlyphStrategy } from "./stroke";
+import { createGlyphMapBoxStrokeGraph, finishGlyphMapBoxStrokeGraph, glyphMapSurfaceOccludes, stampGlyphMapPolyline, type GlyphMapStrokeVertex, type GlyphMapStrokeGlyphStrategy } from "./stroke";
 import { createGlyphMap } from "./widget";
 import { glyphMapEquirectangular } from "./projection";
 
@@ -319,7 +320,19 @@ it.each([[8.2, 1.2], [8.2, 8.2]])("box keeps adjacent accepted cells connected a
   const baseline = grid();
   const line = [{ col: 1.2, row: 1.2, depth: 0 }, { col, row, depth: -1 }];
   const accepted: number[] = [];
-  stampGlyphMapPolyline(baseline, line, { depthCurvatureScale: 0 });
+  // The box graph keeps the walk's raw samples (snapping them turns a solid
+  // run into "┼──"), so its baseline is the raw-sample walk, not default ink.
+  {
+    const [a, b] = line, dCol = b.col - a.col, dRow = b.row - a.row, n = Math.max(1, Math.ceil(Math.hypot(dCol, dRow)));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, c = a.col + dCol * t, r = a.row + dRow * t, ci = Math.floor(c), ri = Math.floor(r), idx = ri * baseline.cols + ci;
+      if (ci < 0 || ci >= baseline.cols || ri < 0 || ri >= baseline.rows) continue;
+      const depth = a.depth + (b.depth - a.depth) * t;
+      if (glyphMapSurfaceOccludes(baseline, ci, ri, c - ci, r - ri, depth, 0, 0)) continue;
+      baseline.char[idx] = inkGlyphForTangent(dCol, dRow, r - ri, c - ci, 2) || "·";
+      baseline.depth[idx] = depth;
+    }
+  }
   stampGlyphMapPolyline(g, line, { experimentalGlyphStrategy: "box", boxGraph: graph, depthCurvatureScale: 0,
     onInk: idx => { if (accepted.at(-1) !== idx) accepted.push(idx); },
   });
