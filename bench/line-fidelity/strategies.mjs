@@ -27,13 +27,13 @@ function rings(c) {
 
 // ── @glyphcss/maps: stampGlyphMapPolyline (the /maps line layer) ──────────
 function mapsStroke(strategy) {
-  return (c) => {
+  return (c, fm) => {
     const grid = emptyCellGrid(c.cols, c.rows);
     for (const pts of rings(c)) {
       const verts = pts.map(([col, row]) => ({ col, row, depth: 0 }));
       // widget.ts hands braille a frozen surface copy; mirror it.
       const surface = strategy === "braille" ? { ...grid, depth: grid.depth.slice() } : undefined;
-      maps.stampGlyphMapPolyline(grid, verts, { ...(strategy ? { experimentalGlyphStrategy: strategy } : {}), ...(surface ? { surface } : {}) });
+      maps.stampGlyphMapPolyline(grid, verts, { cellAspect: fm.cellH / fm.cellW, ...(strategy ? { experimentalGlyphStrategy: strategy } : {}), ...(surface ? { surface } : {}) });
     }
     return cellsOf(grid.char, c.cols);
   };

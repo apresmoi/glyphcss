@@ -629,9 +629,17 @@ export function stampGlyphMapPolyline(
       const t = i / cells;
       let col = a.col + dCol * t;
       let row = a.row + dRow * t;
-      // Plain oriented ink draws in the cell the line truly crosses (see
-      // `inkLineCell`); braille dots and the box graph keep the raw sample.
-      if (!braille && !graph) {
+      // Ink lands where the line truly crosses each major column (see
+      // `inkLineCell`): cells for oriented ink, the 2×4 dot lattice for
+      // braille. Placing it at the raw sample instead ties the drawing to
+      // where the walk's samples happen to fall, so a line sliding along
+      // itself re-draws differently every frame. The box graph keeps the raw
+      // sample.
+      if (braille) {
+        inkLineCell(col * 2, row * 4, dCol * 2, dRow * 4, inkCell);
+        col = (inkCell[0] + inkCell[2]) / 2;
+        row = (inkCell[1] + inkCell[3]) / 4;
+      } else if (!graph) {
         inkLineCell(col, row, dCol, dRow, inkCell);
         col = inkCell[0] + inkCell[2];
         row = inkCell[1] + inkCell[3];
