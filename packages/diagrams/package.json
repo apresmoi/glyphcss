@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/diagrams",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Render Mermaid and JSON as ASCII and box-drawing diagrams for chat, terminals and web apps: flowcharts, sequences, states, ER and Git graphs.",
   "type": "module",
   "main": "dist/index.cjs",
