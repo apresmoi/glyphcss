@@ -145,3 +145,68 @@ describe("line(): styled runs (mutation: ignore the requested style -> red)", ()
     expect(canvas.grid.char[3 * 4 + 3]).toBe("\\");
   });
 });
+
+describe("line(): a diagonal's glyph reads the line's offset from the centre of the cell `line()` assigns (cell c is centred on c)", () => {
+  it("MUTATION CAUGHT: a shallow run through a row centre uses the centred glyph, not the cell-top overline ones", () => {
+    // y runs 0 -> 0.2 across row 0, so the line sits 0 to 0.2 below every
+    // sampled cell's centre: "-" throughout. Measuring from the cell's top
+    // edge instead would read the same samples as 0.0-0.2 from the top and
+    // emit "‾‾‾‾‾".
+    const canvas = createGlyphCanvas({ cols: 5, rows: 1, tier: "box" });
+    canvas.line({ x: 0, y: 0 }, { x: 4, y: 0.2 }, { style: "solid" });
+    expect(encodeGlyphCanvasText(canvas)).toBe("-----");
+  });
+
+  it("MUTATION CAUGHT: a ~2 degree run draws one glyph per column and steps - -> _ down to the row boundary, then ‾ -> - below it", () => {
+    // Row 0 starts with the line on its centre and sinks to its bottom edge:
+    // "-" then "_". Row 1 picks up at its top edge: "‾" then "-" as the line
+    // reaches its centre. Every column is inked exactly once, so the stroke
+    // has no gap and no doubled cell, and the swap happens where the line
+    // crosses the row boundary (x = 14).
+    const canvas = createGlyphCanvas({ cols: 29, rows: 2, tier: "box" });
+    canvas.line({ x: 0, y: 0 }, { x: 28, y: 1 }, { style: "solid" });
+    const [top, bottom] = encodeGlyphCanvasText(canvas).split("\n") as [string, string];
+    expect(top).toMatch(/^-+_+ +$/);
+    expect(bottom).toMatch(/^ +‾+-+$/);
+    for (let c = 0; c < 29; c++) expect((top[c] === " ") !== (bottom[c] === " ")).toBe(true);
+    expect(top.trimEnd().length).toBe(14);
+  });
+
+  it("a negative-coordinate run is offset against the cell the walk reports, not a re-derived one", () => {
+    // The same line shifted left by 2 columns: the canvas starts at 0, so the
+    // clipped render must equal the tail (columns 2..4) of the unshifted one,
+    // glyph for glyph, including the row change halfway.
+    const unshifted = createGlyphCanvas({ cols: 5, rows: 2, tier: "box" });
+    unshifted.line({ x: 0, y: 0 }, { x: 4, y: 0.8 }, { style: "solid" });
+    const shifted = createGlyphCanvas({ cols: 3, rows: 2, tier: "box" });
+    shifted.line({ x: -2, y: 0 }, { x: 2, y: 0.8 }, { style: "solid" });
+    const tail = encodeGlyphCanvasText(unshifted).split("\n").map((l) => l.slice(2)).join("\n");
+    expect(encodeGlyphCanvasText(shifted)).toBe(tail);
+    expect(tail.replace(/[ \n]/g, "").length).toBe(3);
+  });
+});
+
+describe("line(): a wide stroke keeps the footprint of the thin one", () => {
+  const inked = (tier: "ascii" | "box", width: 1 | 2 | 3, from: { x: number; y: number }, to: { x: number; y: number }, cellAspect?: number) => {
+    const c = createGlyphCanvas({ cols: 24, rows: 12, tier, ...(cellAspect ? { cellAspect } : {}) });
+    c.line(from, to, { width });
+    return c.grid.char.map((ch) => (ch === " " ? 0 : 1));
+  };
+
+  it("MUTATION CAUGHT: widths 2 and 3 ink exactly the cells width 1 inks, on sloped runs in every direction and aspect", () => {
+    const runs: [{ x: number; y: number }, { x: number; y: number }][] = [
+      [{ x: 0, y: 0 }, { x: 2, y: 1 }], [{ x: 1, y: 1 }, { x: 20, y: 6 }], [{ x: 20, y: 2 }, { x: 3, y: 10 }],
+      [{ x: 4, y: 0 }, { x: 8, y: 11 }], [{ x: 10.4, y: 9.6 }, { x: 14.2, y: 0.3 }], [{ x: 0, y: 5 }, { x: 22, y: 5.6 }],
+    ];
+    for (const tier of ["ascii", "box"] as const) {
+      for (const aspect of [0.5, 1, 2]) {
+        for (const [from, to] of runs) {
+          const thin = inked(tier, 1, from, to, aspect);
+          expect(thin.some(Boolean)).toBe(true);
+          expect(inked(tier, 2, from, to, aspect)).toEqual(thin);
+          expect(inked(tier, 3, from, to, aspect)).toEqual(thin);
+        }
+      }
+    }
+  });
+});

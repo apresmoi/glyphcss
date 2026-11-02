@@ -642,6 +642,12 @@ export function clearShadeCacheEntry(cache: ShadeCache, t: number): void {
  * blended ramp index + RGB. The scene keeps one and reuses it across renders;
  * `rasterize` resets it when the grid size changes.
  */
+export interface InkLineMemory {
+  cols: number;
+  rows: number;
+  char: string[];
+}
+
 export interface TemporalHistory {
   idx: Float32Array;
   r: Float32Array;
@@ -749,6 +755,13 @@ export interface RasterizeContext {
   textureSamplers?: ReadonlyMap<string, TextureSampler> | null;
   /** Optional retained previous-frame buffer for temporal AA. */
   temporalHistory?: TemporalHistory | null;
+  /**
+   * The glyphs ink mode's lines drew last frame, kept by the scene so a line
+   * holds its glyph through sub-pixel motion (see `inkGlyphForTangent`'s
+   * `held`). Ink mode reads it and overwrites it with this frame's lines;
+   * omitted, every frame is chosen on its own.
+   */
+  inkLineMemory?: InkLineMemory | null;
   /** Optional cross-layer occlusion map (see {@link OcclusionMap}). */
   occlusion?: OcclusionMap | null;
   /** Retain the final solid-mode per-cell shading scalar for an effect input. */

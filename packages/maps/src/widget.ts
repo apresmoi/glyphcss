@@ -1531,6 +1531,11 @@ function extrusionBaseMetres(layer: GlyphMapFillExtrusionLayer, feature: GlyphMa
  */
 type GlyphMapCellAffine = readonly [number, number, number, number, number, number];
 const GLYPH_MAP_IDENTITY_CELL_AFFINE: GlyphMapCellAffine = [1, 0, 0, 1, 0, 0];
+
+/** Height ÷ width of one cell of a grid `cellToSceneGrid` maps onto the base projection grid: a detail grid's cells are not the base grid's shape. */
+function glyphMapLocalCellAspect(baseGrid: ProjectionGrid, cellToSceneGrid: GlyphMapCellAffine): number {
+  return baseGrid.cellAspect * (cellToSceneGrid[3] / cellToSceneGrid[0]);
+}
 /** Rings between yields of a prepared plan: sets the slice granularity without a clock read per ring. */
 const PREPARE_YIELD_RINGS = 16;
 /** The same for a contour's marching segments, which are far cheaper than a ring each. */
@@ -7255,11 +7260,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
     function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
       const boxGraph = layer.experimentalGlyphStrategy === "box" ? createGlyphMapBoxStrokeGraph() : undefined;
+      const cellAspect = glyphMapLocalCellAspect(baseGrid, cellToSceneGrid);
       // Braille inks every cell it crosses at dot pitch; read relief from before
       // this layer so one road's depth never occludes the next.
       const surface = layer.experimentalGlyphStrategy === "braille" ? { ...grid, depth: grid.depth.slice() } : undefined;
       const sink = (color: string | undefined, verts: readonly GlyphMapStrokeVertex[]): void => {
-        stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
+        stampGlyphMapPolyline(grid, verts, { color, cellAspect, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
       };
       let prepared: StrokePlan | undefined;
       if (plans.length) {
@@ -8117,6 +8123,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       };
       const plan = stampGlyphMapContourGeometry(grid, polylines, {
         color: layer.color,
+        cellAspect: glyphMapLocalCellAspect(baseGrid, cellToSceneGrid),
         ...(layer.experimentalGlyphStrategy ? { experimentalGlyphStrategy: layer.experimentalGlyphStrategy } : {}),
         requireSurface: hasOpaqueSurface,
         covered: layer.labels === true && !hasOpaqueSurface ? coveredByProjection : undefined,

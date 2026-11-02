@@ -129,13 +129,15 @@ describe("stampGlyphMapPolyline — the reconstruction, the curvature allowance,
 
   it("draws a stroke behind the RIDGES of a rough surface — the faceting a coarsened relief mesh always has", () => {
     // The stroke follows the smooth trend the coarse mesh would carry while
-    // the surface carries the roughness, so it reads behind at every ridge
-    // cell, by 0.1x the local gradient against an allowance of 0.2x. That is
-    // the whole job of the curvature term: with the scale at 0 the four ridge
-    // cells go dark and this drops to 4.
+    // the surface carries the roughness, so it reads slightly behind at the
+    // cells it inks. That is the whole job of the curvature term: with the
+    // scale at 0 every cell goes dark. The line spans columns 1..8, so it
+    // crosses seven column centres (1.5..7.5): seven cells, not eight. Ink
+    // sits at those centres, where the reconstructed surface reads (c + 0.7)
+    // gradients, so the trend is offset by 0.18 to stay just behind it.
     const grid = rough(0.4 * GRADIENT);
-    stampGlyphMapPolyline(grid, line((col) => col * GRADIENT + 0.3 * GRADIENT), { color: "#fff" });
-    expect(nonEmptyCells(grid)).toBe(8);
+    stampGlyphMapPolyline(grid, line((col) => col * GRADIENT + 0.18 * GRADIENT), { color: "#fff" });
+    expect(nonEmptyCells(grid)).toBe(7);
   });
 
   it("still occludes a stroke genuinely behind that same surface — the allowance is bounded, not a licence", () => {
@@ -446,5 +448,51 @@ describe("contour labels are inert under symbol-label wrapping", () => {
       if (row < 0 || row >= rows) continue;
       for (const word of words) expect(rowText(row)).not.toContain(word);
     }
+  });
+});
+
+describe("stampGlyphMapPolyline — ink lands where the line crosses the cell or dot lattice", () => {
+  const flat = () => makeGrid(40, 12, () => 0);
+  const brailleRows = (offset: number): string[] => {
+    // A segment translated ALONG its own direction is the same line.
+    const dCol = 25, dRow = 5.5;
+    const grid = flat();
+    stampGlyphMapPolyline(grid, [
+      { col: 5.3 + offset * dCol, row: 2.2 + offset * dRow, depth: 0 },
+      { col: 30.3 + offset * dCol, row: 7.7 + offset * dRow, depth: 0 },
+    ], { color: "#fff", experimentalGlyphStrategy: "braille" });
+    // The end cells depend on where the segment stops, so compare the interior.
+    return Array.from({ length: 12 }, (_, r) => grid.char.slice(r * 40 + 9, r * 40 + 27).join(""));
+  };
+
+  it("braille: translating a segment along itself by less than a dot draws the identical dot pattern", () => {
+    const reference = brailleRows(0);
+    expect(reference.join("").replace(/[ ]/g, "").length).toBeGreaterThan(10);
+    for (const offset of [0.004, 0.009, 0.014]) expect(brailleRows(offset)).toEqual(reference);
+  });
+
+  it.each([
+    ["default ink", undefined],
+    ["braille", "braille" as const],
+  ])("%s: a stroke coplanar with a sloped surface is drawn at the depth of the point it inks, not of the walk's sample", (_name, strategy) => {
+    // depth[col, row] = col, so the surface under a cell centre is col + 0.5.
+    // Testing the walk's raw sample (up to half a cell from the ink) would
+    // read the line behind that surface and occlude all of it.
+    const grid = makeGrid(5, 4, (col) => col);
+    stampGlyphMapPolyline(grid, [
+      { col: 0.1, row: 1.5, depth: 0.1 },
+      { col: 3.1, row: 1.5, depth: 3.1 },
+    ], { color: "#fff", ...(strategy ? { experimentalGlyphStrategy: strategy } : {}) });
+    for (const col of [0, 1, 2]) expect(grid.char[1 * 5 + col], `column ${col}`).not.toBe(" ");
+  });
+
+  it("the line-glyph table is keyed on the grid's own cell aspect: tangent (1, 0.5) reads differently at aspect 2 and 1", () => {
+    const glyphAt = (cellAspect: number): string => {
+      const grid = makeGrid(9, 8, () => 0);
+      stampGlyphMapPolyline(grid, [{ col: 1.5, row: 2.5, depth: 0 }, { col: 7.5, row: 5.5, depth: 0 }], { color: "#fff", cellAspect });
+      return grid.char.join("");
+    };
+    expect(glyphAt(2).trim()).not.toBe("");
+    expect(glyphAt(2)).not.toBe(glyphAt(1));
   });
 });

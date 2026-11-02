@@ -11,12 +11,12 @@ describe("renderGlyphChart — shorthand snapshot", () => {
     const r = renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", width: 20, height: 8 });
     expect(r.text).toMatchInlineSnapshot(`
       "8 ┤                /
-        │               //
-      6 ┤              // 
-        │    -\\\\      //  
-      4 ┤ -▔_- \\\\\\   //   
-        │_-      \\\\\\//    
-      2 └┬─────────\\/─────
+        │               / 
+      6 ┤              /  
+        │    _\\        /  
+      4 ┤  --  ‾\\     /   
+        │-‾      ‾\\  /    
+      2 └┬─────────‾/─────
          0          2     "
     `);
   });

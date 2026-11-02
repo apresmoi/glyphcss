@@ -3,6 +3,7 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, resolveGly
 import type { Polygon, PolyTextureWrapMode, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
+import { LINE_GLYPH_TABLES, LINE_TABLE_ANGLE_BUCKETS, LINE_TABLE_OFFSET_BINS, type LineGlyphVocab } from "./lineTables";
 import {
   applyCellHook,
   buildCellGrid,
@@ -1158,11 +1159,11 @@ export function rasterize(scene: RasterizeContext): string {
     if (a[0] !== a[0] || b[0] !== b[0]) continue;
     if (surfaceDepth) {
       drawLineToStampDepthTested(
-        stamp, colorBuf, a[0] | 0, a[1] | 0, b[0] | 0, b[1] | 0, a[2]!, b[2]!,
+        stamp, colorBuf, a[0], a[1], b[0], b[1], a[2]!, b[2]!,
         e.weight ?? 2, e.color ?? null, cols, rows, surfaceDepth, HLR_BIAS, HLR_SLOPE_SCALE,
       );
     } else {
-      drawLineToStamp(stamp, colorBuf, a[0] | 0, a[1] | 0, b[0] | 0, b[1] | 0, e.weight ?? 2, e.color ?? null, cols, rows);
+      drawLineToStamp(stamp, colorBuf, a[0], a[1], b[0], b[1], e.weight ?? 2, e.color ?? null, cols, rows);
     }
     if (junctionMask) accumulateJunctionMask(junctionMask, a[0], a[1], b[0], b[1], cols, rows);
   }
@@ -1179,7 +1180,7 @@ export function rasterize(scene: RasterizeContext): string {
         cChar[i] = " ";
         if (cColor) cColor[i] = null;
       } else {
-        cChar[i] = wireframeGlyphForCell(v, junctionMask ? junctionMask[i]! : 0, glyphs);
+        cChar[i] = wireframeGlyphForCell(v, junctionMask ? junctionMask[i]! : 0, glyphs, i);
         if (cColor) cColor[i] = colorBuf ? (colorBuf[i] ?? null) : null;
       }
     }
@@ -1198,11 +1199,9 @@ export function rasterize(scene: RasterizeContext): string {
   // `captureCells`-only (no real hook) is handled INSIDE `stampToGlyphs`
   // itself, from the exact same per-cell loop that builds the returned
   // string — never a second, independently-reconstructed buffer. Rebuilding
-  // `cChar` a second time here (as an earlier cut of this fix did) called
-  // `wireframeGlyphForCell` AGAIN per cell, and that function's own random
-  // tier pick then diverged from the string's — the captured grid drew
-  // DIFFERENT glyphs than `inner` (caught by
-  // `compileScene.test.ts`'s own grid/inner identity gate).
+  // `cChar` a second time here would be a second buffer free to drift from
+  // the string's (`compileScene.test.ts`'s grid/inner identity gate holds
+  // the two together).
   return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene, occlusionMap);
 }
 
@@ -1241,9 +1240,9 @@ const wireframePaletteAtlasEncodableCache = new Map<string, boolean>();
  * glyphs when `wireframeJunctions` is on — has an outline in `atlas`.
  *
  * This is a function of CONFIGURATION (palette + junctions), never of any one
- * frame's realized draw: `wireframeGlyphForCell` picks a fresh
- * `Math.random()` tier glyph per cell on EVERY render, so gating atlas
- * eligibility on the REALIZED set (what {@link isGlyphAtlasEncodable} checks)
+ * frame's realized draw: which tier glyph `wireframeGlyphForCell` picks
+ * depends on where the lines fall, so gating atlas eligibility on the
+ * REALIZED set (what {@link isGlyphAtlasEncodable} checks)
  * made a partially-covered tier flip spans↔atlas on every render a different
  * subset of glyphs happened to get rolled — measured live at 82 encodability
  * transitions (and 82 font-family pin flips) in 300 rerenders on a sparse
@@ -1306,8 +1305,9 @@ function accumulateJunctionMask(
   ax: number, ay: number, bx: number, by: number,
   cols: number, rows: number,
 ): void {
-  const rowA = Math.round(ay), rowB = Math.round(by);
-  const colA = Math.round(ax), colB = Math.round(bx);
+  // The same cells `forEachLineCell` inks for an axis-aligned run.
+  const rowA = Math.floor(ay), rowB = Math.floor(by);
+  const colA = Math.floor(ax), colB = Math.floor(bx);
   if (rowA === rowB) {
     markHorizontalRun(mask, colA, colB, rowA, cols, rows);
   } else if (colA === colB) {
@@ -1338,22 +1338,28 @@ function markVerticalRun(mask: Uint8Array, rowStart: number, rowEnd: number, col
   }
 }
 
-/** Resolve a single wireframe cell's glyph: junction mask wins when set (and
- *  maps to a known combination), otherwise the existing random per-tier pick. */
+/**
+ * Resolve a single wireframe cell's glyph: junction mask wins when set (and
+ * maps to a known combination), otherwise a tier glyph chosen by a hash of
+ * the cell, not a per-render random draw: a random pick re-rolls every inked
+ * cell each frame (constant shimmer even on a still edge), while the hash
+ * keeps the palette's mixed texture and holds each cell's glyph for as long
+ * as the line stays in it.
+ */
 function wireframeGlyphForCell(
   stampValue: number,
   maskValue: number,
   glyphs: { thin: string[]; normal: string[]; core: string[] },
+  idx: number,
 ): string {
   if (maskValue !== 0) {
     const jg = JUNCTION_GLYPHS[maskValue];
     if (jg !== undefined) return jg;
   }
-  return stampValue === 1
-    ? glyphs.thin[(Math.random() * glyphs.thin.length) | 0]!
-    : stampValue === 2
-      ? glyphs.normal[(Math.random() * glyphs.normal.length) | 0]!
-      : glyphs.core[(Math.random() * glyphs.core.length) | 0]!;
+  const tier = stampValue === 1 ? glyphs.thin : stampValue === 2 ? glyphs.normal : glyphs.core;
+  let h = Math.imul(idx ^ 0x9e3779b9, 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return tier[((h ^ (h >>> 16)) >>> 0) % tier.length]!;
 }
 
 // ── Ink mode ─────────────────────────────────────────────────────────────────
@@ -1465,100 +1471,110 @@ function normalize2(v: [number, number]): [number, number] {
  * unrelated to this segment (agreement ~= 0) collapses to `segDir` alone —
  * exactly the straight, isolated-segment behavior a hard edge needs.
  */
+/**
+ * Below this agreement (a vertex tangent more than 30° off the segment) the
+ * vertex is a corner, not a sampled curve, and the segment draws straight.
+ * The continuous blend alone still tilts both edges of a right-angle corner
+ * by ~15°, which the line-glyph table resolves into a different glyph (a 45°
+ * edge reads as `-`).
+ */
+const INK_CORNER_COS = Math.cos(Math.PI / 6);
+
 function biasTangentToSegment(vt: [number, number], segDir: [number, number]): [number, number] {
   if (segDir[0] === 0 && segDir[1] === 0) return vt;
   const rawDot = vt[0] * segDir[0] + vt[1] * segDir[1];
   const aligned: [number, number] = rawDot < 0 ? [-vt[0], -vt[1]] : vt;
   const agreement = Math.abs(rawDot);
+  if (agreement < INK_CORNER_COS) return segDir;
   return normalize2([segDir[0] + aligned[0] * agreement, segDir[1] + aligned[1] * agreement]);
 }
 
 /**
- * Map a screen-space contour tangent (+ the cell's fractional vertical/
- * horizontal position, used by the horizontal and vertical glyphs
- * respectively) to an oriented ink glyph. `theta = atan2(dy, dx)` is folded
- * into `[0, π)` (a tangent and its negation trace the same line) and
- * quantized into four 45°-wide buckets centered on horizontal / "\" /
- * vertical / "/". Exported so the quantization can be unit tested directly,
- * independent of the full silhouette + smoothing pipeline.
- *
- * Sub-cell discrimination is only added where a monospace font actually
- * renders font-distinct, consistent-weight glyphs for it. Measured by
- * rasterizing each candidate codepoint in the real font (Menlo) and taking
- * PCA over its inked pixels — see
- * `research/contour-first-text/experiments/11-line-glyph-census.mjs` (angle
- * census) and `.../14-subcell-quantization-census.mjs` (this finer
- * row/column census). Every level below is ordered by MEASURED centroid,
- * not assumption:
- *
- * - Horizontal: "‾" (row .16) / "▔" (row .28, UPPER ONE EIGHTH BLOCK) /
- *   "-" (row .68) / "_" (row 1.12). "▔" was added because it measures at
- *   4.3% coverage / 0.90 eccentricity — in family with "‾"/"_" at
- *   2.5-2.8% coverage / 0.90-0.95 eccentricity, not a visible weight jump.
- *   "▁" (LOWER ONE EIGHTH BLOCK) was measured too but its centroid (row
- *   1.17) sits only .05 away from "_" (row 1.12) — far closer to "_" than
- *   any other adjacent pair here — so it was DROPPED as positionally
- *   redundant, not a real new level. "▂"/"▃" (LOWER ONE QUARTER / THREE
- *   EIGHTHS BLOCK) were DROPPED for weight: 8.1%/11.9% coverage (2-4x the
- *   ~3% baseline) and eccentricity 0.68/0.42 (no longer thin-line shaped at
- *   this cell aspect) — a visibly heavier, more block-like stroke.
- * - Vertical stays at three levels: "▏" (col .02, LEFT ONE EIGHTH BLOCK) /
- *   "|" (col .31) / "▕" (col .56, RIGHT ONE EIGHTH BLOCK) — unchanged from
- *   db5703c. "▎" (LEFT ONE QUARTER BLOCK, col .06) measured plausibly by
- *   coverage alone (7.3% vs the shipped ~3-5.5% baseline) and was tried, but
- *   the rendered visual proof on the motivating extruded-text case
- *   (`research/contour-first-text/experiments/15-render-visual-proof.mjs`,
- *   `after16-headon.txt` vs `before16-headon.txt`) showed 20 of 21 "▏"
- *   instances in that render converting to "▎" — not occasional finer
- *   positioning but a near-total, systemic replacement that reads as the
- *   whole word's vertical strokes getting uniformly heavier, not smoother.
- *   Real extruded-text geometry clusters many parallel strokes at similar
- *   sub-column offsets, so this isn't a fluke of one fixture; it's dropped
- *   for real observed weight inconsistency, per the "a visibly uneven stroke
- *   is worse than a coarser one" rule. "▍"/"▌"/"▐" (11.3%/15.3%/16.1%
- *   coverage, 2-3x the baseline) were dropped outright on the coverage
- *   measurement alone, without needing a render to confirm.
- * - Diagonals ("\\" and "/") do NOT get sub-cell discrimination: ASCII and
- *   the Unicode box-drawing diagonals (U+2571/U+2572) have exactly one
- *   glyph per direction with no left/right-shifted variant a monospace font
- *   renders distinctly, and a diagonal stroke already spans corner-to-corner
- *   within its cell, so there's no analogous "offset within the cell" to
- *   express even if a variant existed.
- *
- * Bucket thresholds are 1/6, 1/3, 2/3 on both axes: the original even
- * trisection (1/3, 2/3) is unchanged (so every pre-existing threshold-facing
- * test keeps its result), and the new finer level only subdivides the first
- * third in half. This is a placement choice, not a claim that 1/6 equals a
- * measured centroid midpoint — the existing 1/3-2/3 split was already a
- * round-number simplification over the measured centroids, not an exact fit.
+ * Where one sample of a line draws: the cell its line crosses at the centre of
+ * the sample's own major-axis column (row-major) or row (column-major), plus
+ * that crossing as a fraction of the cell. Every major step of a straight run
+ * then lands exactly one cell, the one the line truly passes through, which is
+ * what `LINE_GLYPH_TABLES` was fitted on; stamping the raw sample's cell
+ * instead puts a corner-clipped cell where the run should be and leaves the
+ * real one empty. Writes `[col, row, subCol, subRow]` into `out`.
  */
-const SUB_SIXTH = 1 / 6;
-const SUB_THIRD = 1 / 3;
-const SUB_TWO_THIRDS = 2 / 3;
+export function inkLineCell(x: number, y: number, dx: number, dy: number, out: [number, number, number, number]): void {
+  if (Math.abs(dx) >= Math.abs(dy) && dx !== 0) {
+    const col = Math.floor(x), cy = y + (col + 0.5 - x) * (dy / dx), row = Math.floor(cy);
+    out[0] = col; out[1] = row; out[2] = 0.5; out[3] = cy - row;
+  } else if (dy !== 0) {
+    const row = Math.floor(y), cx = x + (row + 0.5 - y) * (dx / dy), col = Math.floor(cx);
+    out[0] = col; out[1] = row; out[2] = cx - col; out[3] = 0.5;
+  } else {
+    out[0] = Math.floor(x); out[1] = Math.floor(y); out[2] = x - out[0]; out[3] = y - out[1];
+  }
+}
 
-export function inkGlyphForTangent(dx: number, dy: number, subRow = 0.5, subCol = 0.5): string {
-  if (Math.hypot(dx, dy) < 1e-6) return "·"; // "·" — degenerate/point contour
-  let theta = Math.atan2(dy, dx);
-  if (theta < 0) theta += Math.PI;
-  const EIGHTH = Math.PI / 8;
-  if (theta < EIGHTH || theta >= Math.PI - EIGHTH) {
-    // Near-horizontal: use the cell's fractional vertical position to pick
-    // among four vertically-offset glyphs instead of always "-".
-    if (subRow < SUB_SIXTH) return "‾"; // "‾" OVERLINE
-    if (subRow < SUB_THIRD) return "▔"; // "▔" UPPER ONE EIGHTH BLOCK
-    if (subRow < SUB_TWO_THIRDS) return "-";
-    return "_";
-  }
-  if (theta < 3 * EIGHTH) return "\\";
-  if (theta < 5 * EIGHTH) {
-    // Near-vertical: mirror the horizontal case onto the column axis. Stays
-    // at three levels — see the doc comment above for why a finer "▎" level
-    // was tried and dropped.
-    if (subCol < SUB_THIRD) return "▏"; // "▏" LEFT ONE EIGHTH BLOCK
-    if (subCol < SUB_TWO_THIRDS) return "|";
-    return "▕"; // "▕" RIGHT ONE EIGHTH BLOCK
-  }
-  return "/";
+/**
+ * How far the line may move before a cell gives up the glyph it drew last
+ * frame (`inkGlyphForTangent`'s `held`), in the table's own key units: a held
+ * glyph survives while it is still the table's answer for the line nudged by
+ * up to this much. Without it a line drifting slowly across a bin boundary
+ * flips its glyph back and forth on sub-pixel motion. Tuned on the
+ * line-fidelity bench's animated sequences (`bench/line-fidelity/`).
+ */
+const INK_HOLD_DEG = 3;
+const INK_HOLD_OFFSET = 0.08;
+
+function lineTableGlyph(vocab: LineGlyphVocab, deg: number, rowMajor: boolean, offset: number): string {
+  const width = 180 / LINE_TABLE_ANGLE_BUCKETS;
+  const folded = ((deg % 180) + 180) % 180;
+  const bucket = Math.floor((folded + width / 2) / width) % LINE_TABLE_ANGLE_BUCKETS;
+  const bin = Math.max(0, Math.min(LINE_TABLE_OFFSET_BINS - 1, Math.floor((offset + 1) * (LINE_TABLE_OFFSET_BINS / 2))));
+  const glyph = LINE_GLYPH_TABLES[vocab][(bucket * 2 + (rowMajor ? 0 : 1)) * LINE_TABLE_OFFSET_BINS + bin]!;
+  return glyph === " " ? "" : glyph;
+}
+
+/**
+ * The oriented glyph that best draws a line through one cell, looked up from
+ * `LINE_GLYPH_TABLES` (fitted offline against real-font rasters of both site
+ * faces, see `bench/line-fidelity/`). The line is given by its screen tangent
+ * `(dx, dy)` in cell units (any sign: a tangent and its negation are the same
+ * line) and one point on it, `(subCol, subRow)`, as the fraction of THIS cell
+ * (0 = left/top edge, 0.5 = centre). `cellHeightPerWidth` turns the tangent
+ * into the angle the viewer sees, which is what the glyph has to match.
+ *
+ * The key is the visual angle, the cell-space major axis, and how far the
+ * line passes from the cell centre along the minor axis, extrapolated from
+ * the given point. That offset, not the point, decides the glyph, so every
+ * sample of a straight run that lands in one cell gets the same answer.
+ * Returns `""` where the table says the cell is better left blank (the line
+ * only clips its corner); a zero tangent is a point and returns `"·"`.
+ *
+ * `held` is the glyph this cell drew on the previous frame, if any; it is
+ * kept while still within `INK_HOLD_DEG` / `INK_HOLD_OFFSET` of being the
+ * table's answer, so animation changes a cell only on real motion.
+ */
+export function inkGlyphForTangent(
+  dx: number,
+  dy: number,
+  subRow: number,
+  subCol: number,
+  cellHeightPerWidth: number,
+  vocab: LineGlyphVocab = "ink",
+  held = "",
+): string {
+  if (Math.hypot(dx, dy) < 1e-6) return "·";
+  // Screen y points down; the tables measure the angle counter-clockwise.
+  const deg = (Math.atan2(-dy * cellHeightPerWidth, dx) * 180) / Math.PI;
+  const rowMajor = Math.abs(dx) >= Math.abs(dy);
+  const offset = rowMajor
+    ? subRow + (0.5 - subCol) * (dy / dx) - 0.5
+    : subCol + (0.5 - subRow) * (dx / dy) - 0.5;
+  const glyph = lineTableGlyph(vocab, deg, rowMajor, offset);
+  if (!held || held === glyph) return glyph;
+  if (
+    lineTableGlyph(vocab, deg - INK_HOLD_DEG, rowMajor, offset) === held
+    || lineTableGlyph(vocab, deg + INK_HOLD_DEG, rowMajor, offset) === held
+    || lineTableGlyph(vocab, deg, rowMajor, offset - INK_HOLD_OFFSET) === held
+    || lineTableGlyph(vocab, deg, rowMajor, offset + INK_HOLD_OFFSET) === held
+  ) return held;
+  return glyph;
 }
 
 /**
@@ -1860,6 +1876,9 @@ function rasterizeInk(
   // depth. This never removes a stroke — every contested cell still gets
   // whichever equal-rank segment is nearest, so it cannot punch the
   // mid-stroke holes the per-sample hidden-line attempts did.
+  const inkCell: [number, number, number, number] = [0, 0, 0, 0];
+  const memory = scene.inkLineMemory;
+  const held = memory && memory.cols === cols && memory.rows === rows ? memory.char : null;
   const cellRank = new Int8Array(cols * rows).fill(-1);
   const cellDepth = new Float64Array(cols * rows).fill(-Infinity);
   for (const seg of [...edgeSegments].sort((l, r) => l.rank - r.rank)) {
@@ -1874,14 +1893,21 @@ function rasterizeInk(
     const ta = biasTangentToSegment(tangent.get(seg.fromKey)!, segDir);
     const tb = biasTangentToSegment(tangent.get(seg.toKey)!, segDir);
     const dz = seg.toZ - seg.fromZ;
-    const steps = Math.max(1, Math.round(Math.max(Math.abs(dx), Math.abs(dy))));
+    // At most one cell per step along the major axis, so the snapped walk
+    // (`inkLineCell`) visits every column of a run.
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))));
     for (let i = 0; i <= steps; i++) {
       const t = i / steps;
       const x = a[0] + dx * t, y = a[1] + dy * t;
-      const cx = Math.floor(x), cy = Math.floor(y);
+      const tx = ta[0] + (tb[0] - ta[0]) * t, ty = ta[1] + (tb[1] - ta[1]) * t;
+      inkLineCell(x, y, tx, ty, inkCell);
+      const cx = inkCell[0], cy = inkCell[1];
       if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) continue;
       const idx = cy * cols + cx;
-      const z = seg.fromZ + dz * t;
+      // Depth at the point actually drawn, not the raw sample up to half a
+      // cell away, so occlusion and the equal-rank tie-break test the ink.
+      const ts = dx === 0 && dy === 0 ? t : Math.min(1, Math.max(0, Math.abs(dx) >= Math.abs(dy) ? (cx + inkCell[2] - a[0]) / dx : (cy + inkCell[3] - a[1]) / dy));
+      const z = seg.fromZ + dz * ts;
       // `hiddenLines: "hide"`: skip this SAMPLE (not the whole segment) when
       // a different, nearer surface occludes it — see `buildInkOcclusionMap`.
       // The winning face is exempt when it's within this edge's own local
@@ -1896,14 +1922,22 @@ function rasterizeInk(
           if (inkOcclusion.depth[idx]! > z + allowed) continue;
         }
       }
-      const tx = ta[0] + (tb[0] - ta[0]) * t, ty = ta[1] + (tb[1] - ta[1]) * t;
       if (cellRank[idx]! > seg.rank) continue;
       if (cellRank[idx]! === seg.rank && cellDepth[idx]! >= z) continue;
+      // A blank answer means the line only clips this cell: leave it to
+      // whatever else draws there instead of claiming it.
+      const glyph = inkGlyphForTangent(tx, ty, inkCell[3], inkCell[2], cellAspect, "ink", held ? held[idx] : "");
+      if (!glyph) continue;
       cellRank[idx] = seg.rank;
       cellDepth[idx] = z;
-      charBuf[idx] = inkGlyphForTangent(tx, ty, y - cy, x - cx);
+      charBuf[idx] = glyph;
       if (colorBuf) colorBuf[idx] = seg.color ?? null;
     }
+  }
+  if (memory) {
+    memory.cols = cols;
+    memory.rows = rows;
+    memory.char = charBuf.slice();
   }
 
   if (scene.transformCells || scene.captureCells) {
@@ -4960,7 +4994,7 @@ function solidBufToString(
   const colorTolerance = scene.colorTolerance;
   if (scene.colorEncoding === "atlas" && colorBuf && scene.atlasPalette) {
     // `wireframeGlyphs` is supplied only when `glyphBuf` came straight from
-    // `wireframeGlyphForCell`'s per-tier random draw (no `transformCells` hook
+    // `wireframeGlyphForCell`'s per-tier pick (no `transformCells` hook
     // in between) — see `isWireframePaletteAtlasEncodable`. Any other caller
     // (solid/ink/braille, or a wireframe hook that may have rewritten glyphs
     // to something outside those tiers) has no config-derived potential set
@@ -5101,8 +5135,27 @@ export function bakeFrames(scene: RasterizeContext, frameCount: number, axis: "x
   return frames;
 }
 
-/** Bresenham line into a row-major Uint8Array, max-merging the weight.
- *  Also writes the edge color into colorBuf when weight increases. */
+/**
+ * Visits the cells a projected segment draws in, one per column (row-major)
+ * or row (column-major): the cell the line truly crosses at that column's
+ * centre, the same placement `inkLineCell` gives ink mode. `t` is the
+ * segment parameter there, clamped to the segment so its end cells are its
+ * endpoints' own. Screen coordinates are cell units with cell `c` spanning
+ * `[c, c + 1)`.
+ */
+function forEachLineCell(x0: number, y0: number, x1: number, y1: number, visit: (col: number, row: number, t: number) => void): void {
+  const dx = x1 - x0, dy = y1 - y0;
+  if (dx === 0 && dy === 0) { visit(Math.floor(x0), Math.floor(y0), 0); return; }
+  const rowMajor = Math.abs(dx) >= Math.abs(dy);
+  const from = Math.floor(Math.min(rowMajor ? x0 : y0, rowMajor ? x1 : y1));
+  const to = Math.floor(Math.max(rowMajor ? x0 : y0, rowMajor ? x1 : y1));
+  for (let c = from; c <= to; c++) {
+    const t = Math.min(1, Math.max(0, rowMajor ? (c + 0.5 - x0) / dx : (c + 0.5 - y0) / dy));
+    if (rowMajor) visit(c, Math.floor(y0 + dy * t), t);
+    else visit(Math.floor(x0 + dx * t), c, t);
+  }
+}
+
 function drawLineToStamp(
   stamp: Uint8Array,
   colorBuf: (string | null)[] | null,
@@ -5113,32 +5166,20 @@ function drawLineToStamp(
   cols: number,
   rows: number,
 ): void {
-  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
-  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-  let err = dx + dy;
-  while (true) {
-    if (x0 >= 0 && x0 < cols && y0 >= 0 && y0 < rows) {
-      const idx = y0 * cols + x0;
-      if (stamp[idx] < val) {
-        stamp[idx] = val;
-        if (colorBuf) colorBuf[idx] = color;
-      }
+  forEachLineCell(x0, y0, x1, y1, (col, row) => {
+    if (col < 0 || col >= cols || row < 0 || row >= rows) return;
+    const idx = row * cols + col;
+    if (stamp[idx]! < val) {
+      stamp[idx] = val;
+      if (colorBuf) colorBuf[idx] = color;
     }
-    if (x0 === x1 && y0 === y1) break;
-    const e2 = 2 * err;
-    if (e2 >= dy) { err += dy; x0 += sx; }
-    if (e2 <= dx) { err += dx; y0 += sy; }
-  }
+  });
 }
 
 /**
- * Depth-tested sibling of `drawLineToStamp` for
- * `hiddenLines: "hide"`. Same Bresenham walk, but each sample
- * interpolates the edge's own camera-space depth linearly over the walk's
- * step count (a screen-space-parametric approximation — adequate at the
- * straight, moderate-depth-range edges this spike targets, and consistent
- * with the rest of the wireframe path already working in integer cell
- * coordinates with no other correction) and only stamps the cell when
+ * Depth-tested sibling of `drawLineToStamp` for `hiddenLines: "hide"`: each
+ * cell interpolates the edge's camera-space depth linearly in screen space
+ * (adequate at straight, moderate-depth-range edges) and is stamped only when
  * `wireframeVisibleAtCell` says the stroke is not hidden behind the surface
  * prepass there.
  */
@@ -5156,29 +5197,15 @@ function drawLineToStampDepthTested(
   bias: number,
   slopeScale: number,
 ): void {
-  const dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
-  const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-  let err = dx + dy;
-  const totalSteps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
-  let step = 0;
-  while (true) {
-    if (x0 >= 0 && x0 < cols && y0 >= 0 && y0 < rows) {
-      const t = step / totalSteps;
-      const z = z0 + (z1 - z0) * t;
-      if (wireframeVisibleAtCell(surfaceDepth, cols, rows, x0, y0, z, bias, slopeScale)) {
-        const idx = y0 * cols + x0;
-        if (stamp[idx] < val) {
-          stamp[idx] = val;
-          if (colorBuf) colorBuf[idx] = color;
-        }
-      }
+  forEachLineCell(x0, y0, x1, y1, (col, row, t) => {
+    if (col < 0 || col >= cols || row < 0 || row >= rows) return;
+    if (!wireframeVisibleAtCell(surfaceDepth, cols, rows, col, row, z0 + (z1 - z0) * t, bias, slopeScale)) return;
+    const idx = row * cols + col;
+    if (stamp[idx]! < val) {
+      stamp[idx] = val;
+      if (colorBuf) colorBuf[idx] = color;
     }
-    if (x0 === x1 && y0 === y1) break;
-    const e2 = 2 * err;
-    if (e2 >= dy) { err += dy; x0 += sx; }
-    if (e2 <= dx) { err += dx; y0 += sy; }
-    step++;
-  }
+  });
 }
 
 /**
@@ -5600,14 +5627,11 @@ function foldSubStampToCells(
  * `colorEncoding`/`atlasPalette` add the same third "try atlas first" branch
  * `solidBufToString` gets: when requested, this builds the `char`/`color`
  * buffers this loop would otherwise build inline (a wireframe glyph pick per
- * covered cell, including its `Math.random()` tier draw — already documented
- * non-deterministic frame to frame), and returns {@link encodeGlyphAtlas}'s
- * output if the whole grid is encodable. On the rare fallback case (atlas
- * requested but the grid doesn't fit), the coalescing loop below re-derives
- * its own `char`/`color` per cell rather than reusing this pass's — for a
- * wireframe tier cell that means a SECOND independent random glyph draw, not
- * the one the atlas check saw; both are equally valid per-tier picks, so
- * this is a documented inefficiency, not a correctness gap. The default
+ * covered cell), and returns {@link encodeGlyphAtlas}'s output if the whole
+ * grid is encodable. On the rare fallback case (atlas requested but the grid
+ * doesn't fit), the coalescing loop below re-derives its own `char`/`color`
+ * per cell rather than reusing this pass's; the pick is a pure function of
+ * the cell, so it lands on the same glyph. The default
  * (`colorEncoding` unset/`"spans"`) short-circuits before any of this and
  * never allocates the extra buffers.
  */
@@ -5628,9 +5652,8 @@ function stampToGlyphs(
   const colorTolerance = scene.colorTolerance;
   // `captureCells` (compileScene's own `grid` — AGENTS.md "Compilation"
   // contract 3) must observe the EXACT glyphs this call returns, never a
-  // second, independently re-derived buffer: `wireframeGlyphForCell` picks
-  // randomly within a weight tier, so a second call over the same inputs can
-  // legitimately draw a DIFFERENT glyph. Both return paths below therefore
+  // second, independently re-derived buffer, which is free to drift from
+  // the returned string. Both return paths below therefore
   // capture from their OWN already-built `char`/`color` arrays — the same
   // ones the returned string comes from — via `applyCellHook`'s own
   // grid-construction (no real hook, so it only builds the grid and invokes
@@ -5638,9 +5661,9 @@ function stampToGlyphs(
   const capture = scene.captureCells;
   if (scene.colorEncoding === "atlas" && colorBuf && scene.atlasPalette) {
     // Gate on the palette's POTENTIAL glyph set BEFORE building a single
-    // realized (random-drawn) buffer — see `isWireframePaletteAtlasEncodable`.
-    // A partially-covered tier is deterministically unencodable regardless of
-    // what this frame happens to roll, so there is nothing to build.
+    // realized buffer — see `isWireframePaletteAtlasEncodable`. A
+    // partially-covered tier is unencodable whichever of its glyphs this
+    // frame lands on, so there is nothing to build.
     if (!isWireframePaletteAtlasEncodable(glyphs, scene.glyphPalette, scene.wireframeJunctions, scene.fontAtlas)) {
       scene.atlasGlyphFallback = true;
     } else {
@@ -5655,7 +5678,7 @@ function stampToGlyphs(
             atlasChar[idx] = " ";
             atlasColor[idx] = null;
           } else {
-            atlasChar[idx] = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
+            atlasChar[idx] = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs, idx);
             atlasColor[idx] = colorBuf[idx] ?? null;
           }
         }
@@ -5715,7 +5738,7 @@ function stampToGlyphs(
         g = " ";
         col = null;
       } else {
-        g = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
+        g = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs, idx);
         col = colorBuf ? (colorBuf[idx] ?? null) : null;
       }
       if (capChar) { capChar[idx] = g; capColor![idx] = col; }

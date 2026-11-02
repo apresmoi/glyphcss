@@ -1,18 +1,18 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`rasterize — byte-identity guard: every pre-existing (mode, charMode) combination is unaffected by the wireframe sub-cell generalization > ascii wireframe (charMode absent) is byte-identical 1`] = `
-"      ╋  ╋    ╋╋╋╋      
-     ╋   ╋╋       ╋╋╋   
-   ╋╋  ╋╋  ╋╋╋       ╋╋╋
-  ╋   ╋       ╋╋╋       
-╋╋  ╋╋           ╋╋╋╋  ╋
-╋  ╋                 ╋╋╋
- ╋╋╋                ╋╋  
-╋╋  ╋╋╋           ╋╋   ╋
-╋      ╋╋╋       ╋    ╋ 
- ╋╋       ╋╋╋  ╋╋    ╋  
-   ╋╋╋       ╋╋    ╋╋   
-      ╋╋      ╋   ╋     "
+"     ╋   ◆      ▲⬢△     
+   ⊗◇   ╋◊┼◇       ◇∴△  
+  ⊗    ╳    ⊛△∵       ⊙⬢
+⊙╋   ◈⊙        ◇∵⬢      
+    ∴             ╳╬╳  △
+  ┼∵                 △◆▼
+◈▽⊥                 ⊗⊕  
+▽  ∴▽⊗             ┼    
+      ▼◈⬢        ╬∵   ⊗◆
+╋▽       ▲╋⊥    ◈    ╬  
+  ⊙⬡◈       ▽∴▼◊   ⬡╳   
+     ▽⊛◈      ▽   ╋     "
 `;
 
 exports[`rasterize — byte-identity guard: every pre-existing (mode, charMode) combination is unaffected by the wireframe sub-cell generalization > braille wireframe is byte-identical 1`] = `

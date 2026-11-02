@@ -115,7 +115,7 @@
  * a surface and a curve lying on it, which is precisely the case the
  * reconstruction above was written for.
  */
-import { inkGlyphForTangent } from "glyphcss";
+import { inkGlyphForTangent, inkLineCell } from "glyphcss";
 import type { CellGrid } from "glyphcss";
 import { glyphMapExperimentalStrokeGlyph, glyphMapStrokePathMasks, type GlyphMapStrokeGlyphSample, type GlyphMapStrokeGlyphStrategy } from "./strokeGlyphs";
 export type { GlyphMapStrokeGlyphStrategy } from "./strokeGlyphs";
@@ -164,6 +164,8 @@ export interface GlyphMapStrokeVertex {
 
 export interface GlyphMapStampOptions {
   readonly color?: string;
+  /** Cell height ÷ width (the projection grid's `cellAspect`): turns the stroke's cell-space tangent into the angle the viewer sees, which the line-glyph table is keyed on. Default `2`, the widget's own default. */
+  readonly cellAspect?: number;
   /** @experimental Local border-glyph exploration. Omit for byte-identical oriented ink. */
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
   /** @internal The depth buffer as it stood before this layer stamped anything; occlusion reads it so a layer's own ink never hides the layer. Box keeps its own in `boxGraph`. */
@@ -547,6 +549,8 @@ export function stampGlyphMapPolyline(
   const bias = opts.depthBias ?? 0;
   const curvatureScale = opts.depthCurvatureScale ?? GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE;
   const requireSurface = opts.requireSurface ?? false;
+  const cellAspect = opts.cellAspect ?? 2;
+  const inkCell: [number, number, number, number] = [0, 0, 0, 0];
   const onInk = opts.onInk;
   const strategy = opts.experimentalGlyphStrategy;
   const graph = strategy === "box" ? opts.boxGraph ?? createGlyphMapBoxStrokeGraph() : null;
@@ -622,9 +626,28 @@ export function stampGlyphMapPolyline(
     }
     if (iFrom > iTo) { breakPath(); continue; }
     for (let i = iFrom; i <= iTo; i++) {
-      const t = i / cells;
-      const col = a.col + dCol * t;
-      const row = a.row + dRow * t;
+      let t = i / cells;
+      let col = a.col + dCol * t;
+      let row = a.row + dRow * t;
+      // Ink lands where the line truly crosses each major column (see
+      // `inkLineCell`): cells for oriented ink, the 2×4 dot lattice for
+      // braille. Placing it at the raw sample instead ties the drawing to
+      // where the walk's samples happen to fall, so a line sliding along
+      // itself re-draws differently every frame. The box graph keeps the raw
+      // sample: it joins accepted cells by connectivity, and snapped cells
+      // can step back across a run and read as a junction.
+      if (braille) {
+        inkLineCell(col * 2, row * 4, dCol * 2, dRow * 4, inkCell);
+        col = (inkCell[0] + inkCell[2]) / 2;
+        row = (inkCell[1] + inkCell[3]) / 4;
+      } else if (!graph) {
+        inkLineCell(col, row, dCol, dRow, inkCell);
+        col = inkCell[0] + inkCell[2];
+        row = inkCell[1] + inkCell[3];
+      }
+      // Depth and slack follow the point actually drawn, or a stroke on a
+      // sloped surface is tested at a depth from up to half a cell away.
+      if ((braille || !graph) && (dCol !== 0 || dRow !== 0)) t = Math.min(1, Math.max(0, Math.abs(dCol) >= Math.abs(dRow) ? (col - a.col) / dCol : (row - a.row) / dRow));
       const colI = Math.floor(col);
       const rowI = Math.floor(row);
       if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) { breakPath(); continue; }
@@ -651,12 +674,16 @@ export function stampGlyphMapPolyline(
         connectBoxCell(idx);
         continue;
       }
+      // The box graph re-glyphs every cell it keeps from connectivity, so
+      // only plain oriented ink may leave a corner-clipped cell blank.
+      const glyph = braille ? "" : inkGlyphForTangent(dCol, dRow, subRow, subCol, cellAspect) || (graph ? "·" : "");
+      if (!braille && !glyph) continue;
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
       if (graph) { rememberBoxCell(grid, graph, idx); touched!.add(idx); }
       if (braille) {
         glyphMapStampBrailleDot(grid, idx, subCol, subRow, color, depth);
       } else {
-        grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
+        grid.char[idx] = glyph;
         grid.color[idx] = color;
         grid.depth[idx] = depth;
       }
@@ -684,6 +711,8 @@ export function stampGlyphMapPolyline(
 export interface GlyphMapContourOptions {
   readonly levels: readonly number[];
   readonly color?: string;
+  /** @see GlyphMapStampOptions.cellAspect */
+  readonly cellAspect?: number;
   /**
    * Gate empty (`grid.depth` non-finite) cells by requiring surface
    * coverage there — the correct behavior when SOME other layer paints
@@ -1053,7 +1082,7 @@ export function stampGlyphMapContour(
       }
       // Perpendicular to the gradient (rotate 90°) — `inkGlyphForTangent`
       // is direction-mod-180 already, so either rotation sign is equivalent.
-      grid.char[idx] = inkGlyphForTangent(-gy, gx, 0.5, 0.5);
+      grid.char[idx] = inkGlyphForTangent(-gy, gx, 0.5, 0.5, opts.cellAspect ?? 2);
       grid.color[idx] = color;
     }
   }
@@ -1076,6 +1105,8 @@ export interface GlyphMapContourPolyline {
 
 export interface GlyphMapContourGeometryOptions {
   readonly color?: string;
+  /** @see GlyphMapStampOptions.cellAspect */
+  readonly cellAspect?: number;
   /** @see GlyphMapStampOptions.experimentalGlyphStrategy — `"braille"` and `"box"` are the line layer's own, shared across this call's lines. */
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
   /** @see GlyphMapStampOptions.requireSurface — default `true` here, the contour ANNOTATION rule. */
@@ -1144,6 +1175,7 @@ export function stampGlyphMapContourGeometry(
     const level = line.level;
     stampGlyphMapPolyline(grid, line.points, {
       color: opts.color,
+      cellAspect: opts.cellAspect,
       ...(strategy ? { experimentalGlyphStrategy: strategy } : {}),
       ...(boxGraph ? { boxGraph } : {}),
       ...(surface ? { surface } : {}),

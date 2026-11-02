@@ -18,7 +18,6 @@ import { glyphInkDensity } from "./glyphInk";
 import { createGlyphCanvasReport, type GlyphCanvasFoldedGlyph, type GlyphCanvasReport } from "./report";
 import {
   GLYPH_CANVAS_TIERS,
-  type GlyphCanvasDiagonalKey,
   type GlyphCanvasTier,
   type GlyphCanvasTierName,
 } from "./tiers";
@@ -323,6 +322,33 @@ interface GlyphCanvasLineCell {
  * puts those boundaries on integers, the framing Amanatides–Woo assumes —
  * and reports cells back unshifted.
  */
+/**
+ * A sloped run's cells: one per major-axis column (row), the one the line
+ * crosses at that column's centre, the placement `LINE_GLYPH_TABLES` is
+ * fitted for (see `inkLineCell`). The supercover walk above also visits the
+ * cells a slope only clips at a corner, which the table leaves blank, so it
+ * would draw those as gaps. Same centred-cell convention as `line()`.
+ */
+function walkGlyphCanvasLineColumns(a: GlyphCanvasPoint, b: GlyphCanvasPoint): GlyphCanvasLineCell[] {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const rowMajor = Math.abs(dx) >= Math.abs(dy);
+  const from = Math.floor(Math.min(rowMajor ? a.x : a.y, rowMajor ? b.x : b.y) + 0.5);
+  const to = Math.floor(Math.max(rowMajor ? a.x : a.y, rowMajor ? b.x : b.y) + 0.5);
+  const cells: GlyphCanvasLineCell[] = [];
+  for (let c = from; c <= to; c++) {
+    if (rowMajor) {
+      const py = a.y + (dy * (c - a.x)) / dx;
+      cells.push({ col: c, row: Math.floor(py + 0.5), px: c, py });
+    } else {
+      const px = a.x + (dx * (c - a.y)) / dy;
+      cells.push({ col: Math.floor(px + 0.5), row: c, px, py: c });
+    }
+  }
+  if (rowMajor ? dx < 0 : dy < 0) cells.reverse();
+  return cells;
+}
+
 function walkGlyphCanvasLine(a: GlyphCanvasPoint, b: GlyphCanvasPoint): GlyphCanvasLineCell[] {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -827,7 +853,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       const fillGlyph = tierTable.shadeRamp[tierTable.shadeRamp.length - 1]!;
       let patternIndex = 0;
       let loggedDoubleDiagonal = false;
-      for (const { col: cx, row: cy, px, py } of walkGlyphCanvasLine(a, b)) {
+      for (const { col: cx, row: cy, px, py } of diagonal ? walkGlyphCanvasLineColumns(a, b) : walkGlyphCanvasLine(a, b)) {
         if (cx < 0 || cx >= cols || cy < 0 || cy >= rows) continue;
         const idx = cy * cols + cx;
         // The pattern advances per DISTINCT cell the walk visits, whether or
@@ -842,16 +868,14 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
 
         let baseGlyph: string | undefined;
         if (diagonal) {
-          // A diagonal has no dashed/dotted/double analogue in this glyph
-          // set (`inkGlyphForTangent` already varies by sub-cell offset, so
-          // there is no single extra "style" axis left to modulate); it
-          // still goes through the TIER TABLE for every glyph, via
-          // `tier.diagonal`, so an `ascii` canvas never emits the raw
-          // (non-ASCII) ink vocabulary directly.
-          const subCol = px - Math.floor(px);
-          const subRow = py - Math.floor(py);
-          const rawInk = inkGlyphForTangent(dx, dy, subRow, subCol);
-          baseGlyph = rawInk === "·" ? tierTable.dot : tierTable.diagonal[rawInk as GlyphCanvasDiagonalKey];
+          // A diagonal has no dashed/dotted/double analogue; its glyph comes
+          // from the tier's own line table (`lineVocab`), so an `ascii`
+          // canvas never emits a non-ASCII stroke. `line()` centres cell `c`
+          // on integer `c`, so the cell spans `[c - 0.5, c + 0.5)`;
+          // `inkGlyphForTangent` wants the offset from that cell's top/left
+          // edge, measured against the walk's own cell.
+          const rawInk = inkGlyphForTangent(dx, dy, py + 0.5 - cy, px + 0.5 - cx, 1 / cellAspect, tierTable.lineVocab);
+          baseGlyph = rawInk === "·" ? tierTable.dot : rawInk;
           if (style === "double" && !loggedDoubleDiagonal) {
             loggedDoubleDiagonal = true;
             report.ledger.push(

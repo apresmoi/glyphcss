@@ -672,7 +672,9 @@ export function createGlyphMapExtrusionSurface(
           const p = project(cut), target = da <= 0 ? pa : pb;
           target.col = p.col; target.row = p.row; target.depth = p.depth;
         }
-        if (Math.max(pa.col, pb.col) < 0 || Math.min(pa.col, pb.col) >= cols || Math.max(pa.row, pb.row) < 0 || Math.min(pa.row, pb.row) >= rows) continue;
+        // One cell of slack: the stroke inks where the line crosses each
+        // column centre, up to half a cell past an endpoint.
+        if (Math.max(pa.col, pb.col) < -1 || Math.min(pa.col, pb.col) >= cols + 1 || Math.max(pa.row, pb.row) < -1 || Math.min(pa.row, pb.row) >= rows + 1) continue;
         // The sampler consumes the occlusion callback synchronously. Tags avoid a Set
         // and a new closure for every directed edge, without clearing the mask.
         if (s.incidentTag === 2147483647) { s.incident.fill(0); s.incidentTag = 0; }

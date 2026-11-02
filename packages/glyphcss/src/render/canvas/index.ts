@@ -45,8 +45,6 @@ export type {
   GlyphCanvasTierName,
   GlyphCanvasStraightGlyphs,
   GlyphCanvasArrowGlyphs,
-  GlyphCanvasDiagonalGlyphs,
-  GlyphCanvasDiagonalKey,
 } from "./tiers";
 
 export {

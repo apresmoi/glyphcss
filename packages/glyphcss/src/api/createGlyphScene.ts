@@ -34,7 +34,7 @@ import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildGlyphPolygonCullChunks, buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
 import { clearShadeCacheEntry, countShadeTriangles, createShadeCache } from "./rasterizeContext";
-import type { GlyphPolygonCullChunk, ShadeCache, TemporalHistory } from "./rasterizeContext";
+import type { GlyphPolygonCullChunk, ShadeCache, InkLineMemory, TemporalHistory } from "./rasterizeContext";
 import { rasterize, rasterizeToCells, computeOcclusionIds, buildSurfaceDepth, GLYPH_FOREIGN_OCCLUDER_ID } from "../render/rasterize";
 import type { GlyphOcclusionSlopes } from "../render/rasterize";
 import { buildCellGrid, encodeCellGridOutput, encodeGlyphBuffers, hasGlyphOutsideFontAtlas, type CellGrid, type GlyphColorEncoding, type GlyphTransformCellsLayer, type TransformCells } from "../render/cells";
@@ -1419,6 +1419,8 @@ export function createGlyphScene(
     return chunks;
   }
   // Retained previous-frame buffer for temporal AA; `rasterize` resizes/seeds it.
+  // Ink mode's last-frame line glyphs; see `RasterizeContext.inkLineMemory`.
+  const inkLineMemory: InkLineMemory = { cols: 0, rows: 0, char: [] };
   const temporalHistory: TemporalHistory = {
     idx: new Float32Array(0), r: new Float32Array(0), g: new Float32Array(0), b: new Float32Array(0), cols: 0, rows: 0, cam: null,
   };
@@ -2008,6 +2010,10 @@ export function createGlyphScene(
     ctx.shadeCache = nextShadeCache;
     ctx.textureSamplers = resolvedTextureSamplers();
     if (options.glyphOutput === "visible") ctx.temporalHistory = nextTemporalHistory;
+    // Staged like the shade cache: ink mode writes this frame's lines into
+    // the copy, and only a published render makes them last frame's.
+    const nextInkLineMemory: InkLineMemory = { ...inkLineMemory };
+    ctx.inkLineMemory = nextInkLineMemory;
     // Base layer maps its internal (supersampled) cell 1:1 onto the id-map (also
     // built at ss): colScale=ss cancels the mask's 1/ss, so internal cell → id-map cell.
     ctx.occlusion = occShared
@@ -2100,6 +2106,7 @@ export function createGlyphScene(
       retained: options.glyphOutput === "visible" ? (collectingEffectOutputs ?? new Map()) : null,
     });
     publishRendererState(nextShadeCache, nextTemporalHistory);
+    Object.assign(inkLineMemory, nextInkLineMemory);
     semanticCellFrame = nextSemanticCellFrame;
     lastOcclusionSnapshot = occShared;
     effectDirty = false;

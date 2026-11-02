@@ -53,6 +53,13 @@ REAL `/maps` page (React, widget, tiles and all) under continuous motion —
 renders per displayed frame, the Chrome task/script/layout/paint split,
 glyphcss's own stage breakdown, and a fidelity digest. See its own README.
 
+## Line-fidelity bench
+
+`bench/line-fidelity/` is an offline experiment that scores how well the current
+line strategies (ink, wireframe, box/braille map strokes, canvas lines) draw a
+line, against a lookup-table baseline and a DP oracle, on glyph rasters measured
+from the real site faces. See its own README; results in its `RESULTS.md`.
+
 ## Findings — making the drag loop faster, losslessly
 
 Profiling `army.vox` (7k polys, line-height 0.5) showed the per-render loop is

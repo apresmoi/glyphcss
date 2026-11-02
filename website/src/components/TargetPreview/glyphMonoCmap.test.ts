@@ -1,5 +1,5 @@
 // CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C5: the box tier's diagonal
-// table can paint `‾` (U+203E), which the shipped "Glyph Mono" subset used
+// line vocabulary can paint `‾` (U+203E), which the shipped "Glyph Mono" subset used
 // to lack — falling back to a system font whose different advance width
 // misaligned the rest of that row (AGENTS.md's "Charts" font paragraph).
 // This walks EVERY glyph `GLYPH_CANVAS_TIERS` can actually emit (straight
@@ -11,8 +11,23 @@
 // diagnosis's own caveat: "data- and size-dependent... latent on every
 // frame that pins Glyph Mono").
 import { describe, expect, it } from "vitest";
-import { GLYPH_CANVAS_TIERS, GLYPH_CANVAS_QUADRANT_GLYPHS, type GlyphCanvasTier } from "glyphcss";
+import { GLYPH_CANVAS_TIERS, GLYPH_CANVAS_QUADRANT_GLYPHS, inkGlyphForTangent, type GlyphCanvasTier } from "glyphcss";
 import cmapData from "./glyphMonoCmap.json";
+
+/** Every glyph `line()` can draw on a diagonal: the tier's line vocabulary,
+ *  walked through the public lookup over every angle bucket, both major axes
+ *  and the whole offset range (the fitted table itself is not exported). */
+function lineGlyphs(tier: GlyphCanvasTier): string[] {
+  const out = new Set<string>(["·"]);
+  for (let deg = 0; deg < 180; deg += 2) {
+    const dx = Math.cos((deg * Math.PI) / 180), dy = -Math.sin((deg * Math.PI) / 180);
+    for (let i = 0; i <= 16; i++) {
+      const sub = i / 16;
+      for (const g of [inkGlyphForTangent(dx, dy, sub, 0.5, 1, tier.lineVocab), inkGlyphForTangent(dx, dy, 0.5, sub, 1, tier.lineVocab)]) if (g) out.add(g);
+    }
+  }
+  return [...out];
+}
 
 /** Every glyph a single `GlyphCanvasTier` can put in a cell, as an array of
  *  single Unicode-codepoint strings (grapheme-by-grapheme — every entry in
@@ -27,7 +42,7 @@ function tierGlyphs(tier: GlyphCanvasTier): string[] {
     tier.double.h, tier.double.v,
     tier.arrow.n, tier.arrow.e, tier.arrow.s, tier.arrow.w,
     ...Object.values(tier.junction),
-    ...Object.values(tier.diagonal),
+    ...lineGlyphs(tier),
     ...tier.shadeRamp,
   ];
   if (tier.subGlyph) {

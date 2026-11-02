@@ -18,6 +18,7 @@
  */
 
 import { WIREFRAME_PALETTES } from "../ramps";
+import type { LineGlyphVocab } from "../lineTables";
 
 /**
  * N/E/S/W side bits a `connect()` mask is built from — the same 4-bit
@@ -39,20 +40,6 @@ export interface GlyphCanvasArrowGlyphs {
   readonly w: string;
 }
 
-/**
- * `line()`'s diagonal (non-axis-aligned) glyph vocabulary, keyed by the
- * RAW box-tier glyph `inkGlyphForTangent` (`../rasterize`) can return for a
- * sloped run — `‾ ▔ ▏ ▕ / \ - | _`, the same nine the existing `ink` render
- * mode uses for a smoothed contour tangent (AGENTS.md's render-modes table).
- * Every tier maps each of these nine keys to ITS OWN vocabulary, so a
- * diagonal `line()` call is table-driven exactly like every other painter —
- * an `ascii` canvas never emits `‾`/`▔`/`▕`/`▏`, which are outside
- * `0x20-0x7e`. The degenerate zero-length case (`inkGlyphForTangent`'s `·`)
- * is not a member of this table: it reuses `dot` directly, since `·` IS
- * `box`'s own `dot` glyph and every tier already has one.
- */
-export type GlyphCanvasDiagonalKey = "‾" | "▔" | "▏" | "▕" | "/" | "\\" | "-" | "|" | "_";
-export type GlyphCanvasDiagonalGlyphs = Readonly<Record<GlyphCanvasDiagonalKey, string>>;
 
 export interface GlyphCanvasTier {
   /** Plain axis-aligned run glyphs, style `"solid"`. */
@@ -80,8 +67,11 @@ export interface GlyphCanvasTier {
   readonly double: GlyphCanvasStraightGlyphs;
   /** Arrowhead tip glyphs. */
   readonly arrow: GlyphCanvasArrowGlyphs;
-  /** See {@link GlyphCanvasDiagonalGlyphs}. */
-  readonly diagonal: GlyphCanvasDiagonalGlyphs;
+  /**
+   * Which `LINE_GLYPH_TABLES` table draws a sloped `line()` run: `ink` for
+   * the Unicode tiers, `ascii` for the pure-ASCII one.
+   */
+  readonly lineVocab: LineGlyphVocab;
   /**
    * Dark → bright shading ramp consulted by `fillRect` for `ascii`/`box`;
    * present (and real) on all four tiers for parity, but `blocks`/`braille`
@@ -128,13 +118,13 @@ export type GlyphCanvasTierName = "ascii" | "box" | "blocks" | "braille";
 const { n: N, e: E, s: S, w: W } = GLYPH_CANVAS_DIRECTION_BITS;
 
 /**
- * Box-drawing line/junction/hop/dot/double/arrow/diagonal glyphs, shared by
+ * Box-drawing line/junction/hop/dot/double/arrow glyphs, shared by
  * `box`, `blocks` and `braille`. These three still draw ROUTES (`edge()`/
  * `route()`/`resolveJunctions()`) and ARROWHEADS identically — that line art
  * has no sub-cell analogue worth inventing (a route is a graph, an
  * arrowhead a fixed tip shape, neither a geometric slope to rasterise
  * finer). `line()` itself is the exception: in `braille`/`blocks` it
- * bypasses this table's `straight`/`diagonal`/`double`/`dot` entries
+ * bypasses this table's `straight`/`lineVocab`/`double`/`dot` entries
  * entirely and rasterises at sub-cell (dot) resolution into `sub` instead
  * (`canvas.ts`'s `paintSubcellLine`) — those four entries stay on this
  * table only for the tier-parity gate's shape, exactly as `shadeRamp`
@@ -158,16 +148,11 @@ const BOX_LINE_GLYPHS = {
   dot: "·",
   double: { h: "═", v: "║" },
   arrow: { n: "▲", e: "▶", s: "▼", w: "◀" },
-  // The box tier's diagonal glyphs ARE `inkGlyphForTangent`'s own raw
-  // vocabulary — no remapping needed, this table is the identity.
-  diagonal: {
-    "‾": "‾", "▔": "▔", "▏": "▏", "▕": "▕",
-    "/": "/", "\\": "\\", "-": "-", "|": "|", "_": "_",
-  },
+  lineVocab: "ink",
 } satisfies Omit<GlyphCanvasTier, "shadeRamp" | "subcell" | "subGlyph">;
 
 /**
- * Pure-ASCII line/junction/hop/dot/double/arrow/diagonal glyphs for the
+ * Pure-ASCII line/junction/hop/dot/double/arrow glyphs for the
  * `ascii` tier. Box-drawing has no ASCII equivalent for a T/cross join, so
  * every 2+-bit combination collapses to `+` (the traditional ASCII
  * box-drawing convention — see any `--dry-run` diff/tree renderer). The
@@ -191,10 +176,7 @@ const ASCII_LINE_GLYPHS = {
   // and "#" as a doubled upright, both staying inside 0x20-0x7e.
   double: { h: "=", v: "#" },
   arrow: { n: "^", e: ">", s: "v", w: "<" },
-  diagonal: {
-    "‾": "-", "▔": "-", "▏": "|", "▕": "|",
-    "/": "/", "\\": "\\", "-": "-", "|": "|", "_": "_",
-  },
+  lineVocab: "ascii",
 } satisfies Omit<GlyphCanvasTier, "shadeRamp" | "subcell" | "subGlyph">;
 
 /**
