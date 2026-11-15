@@ -165,3 +165,35 @@ describe("two-frame temporal export", () => {
     } finally { await rm(root, { recursive: true, force: true }); }
   });
 });
+
+// Shares this file's CLI build rather than paying for a second one.
+describe("glyphcss CLI turntable", () => {
+  const turn = ["--turntable", "--frames", "6", "--cols", "30", "--rows", "16"];
+
+  it("writes one self-animating SVG, fitted to the grid", async () => {
+    const { stdout } = await execute(process.execPath, [cliPath, "cube", ...turn, "-f", "svg"]);
+    expect(stdout.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
+    expect(stdout.match(/<animate /g)).toHaveLength(6);
+    expect(stdout).not.toContain("<script");
+    const rows = stdout.match(/<pre[^>]*>([\s\S]*?)<\/pre>/)![1]!.split("\n");
+    expect(rows.length).toBeGreaterThan(8);
+    expect(rows.length).toBeLessThanOrEqual(16);
+  });
+
+  it("picks svg from the output name and html otherwise", async () => {
+    const root = await mkdtemp(join(tmpdir(), "glyph-turntable-"));
+    try {
+      await execute(process.execPath, [cliPath, "cube", ...turn, "-o", join(root, "cube.svg")]);
+      expect(await readFile(join(root, "cube.svg"), "utf8")).toMatch(/^<svg /);
+      const { stdout } = await execute(process.execPath, [cliPath, "cube", ...turn]);
+      expect(stdout).toMatch(/^<style>[\s\S]*@keyframes glyph-frame[\s\S]*<\/style>\n<div class="glyph-roll">/);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects the formats that cannot hold a turntable, and svg without one", async () => {
+    await expect(execute(process.execPath, [cliPath, "cube", ...turn, "-f", "text"])).rejects.toThrow(/--turntable writes svg, html or full/);
+    await expect(execute(process.execPath, [cliPath, "cube", "-f", "svg"])).rejects.toThrow(/--format svg needs --turntable/);
+  });
+});
