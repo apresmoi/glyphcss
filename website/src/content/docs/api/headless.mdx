@@ -226,5 +226,9 @@ control + a decimated mesh; `glyphCodepenPrefill` turns it into a CodePen POST.
 Mesh simplification is available standalone as `decimatePolygons(polygons, { grid })`
 from `@glyphcss/core`.
 
+For a rotation with no runtime, `buildGlyphFramesExport(polygons, options)` bakes
+every frame to HTML + CSS and `buildGlyphFramesSvgExport(polygons, options)` to one
+SVG that animates as an image. See [Baked rotation](/guides/compile/#baked-rotation).
+
 The Node file pipeline (`loadMeshFromFile`, `compileFile`, the Vite plugin, the
 `glyphcss` CLI) lives in `@glyphcss/compile`.

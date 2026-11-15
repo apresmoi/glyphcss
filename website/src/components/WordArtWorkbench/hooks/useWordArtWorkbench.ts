@@ -16,7 +16,7 @@ import {
 } from "@glyphcss/fonts";
 import type { Polygon, Vec3 } from "@glyphcss/react";
 import type { CompileSceneResult } from "glyphcss";
-import { encodeStaticGlyphHtml, injectGlyphBaseStyles } from "glyphcss";
+import { buildGlyphFramesSvgExport, encodeStaticGlyphHtml, injectGlyphBaseStyles } from "glyphcss";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type GalleryEffectDefinition,
@@ -56,7 +56,8 @@ import { wordArtEffectStateFromUrlState } from "../../../features/wordart/servic
 import { initialWordArtState, qs } from "../../../features/wordart/services/initialState";
 import { writeWordArtUrlState } from "../../../features/wordart/services/wordartUrlState";
 import { extractAsciiFromPre } from "../../../services/export/asciiClipboard";
-import { downloadGlyphSvg } from "../../../services/export/glyphSvgExport";
+import { centerMesh, rotateMeshVerticesDeg } from "../WordArtStage";
+import { downloadGlyphSvg, downloadSvgText } from "../../../services/export/glyphSvgExport";
 import { renderPresetTile } from "../WordArtPresetTile";
 
 export function useWordArtWorkbench() {
@@ -273,15 +274,17 @@ export function useWordArtWorkbench() {
   // including the explicit "error" state.
   const [svgState, setSvgState] = useState<"idle" | "downloaded" | "error">("idle");
 
+  const exportSlug = () =>
+    text
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-")
+      .replace(/[^a-z0-9-]/g, "")
+      .slice(0, 40) || "untitled";
+
   const handleDownloadSvg = useCallback(() => {
     const pre = document.querySelector(".wa-stage pre.glyph-output") as HTMLElement | null;
-    const slug =
-      text
-        .trim()
-        .toLowerCase()
-        .replace(/\s+/g, "-")
-        .replace(/[^a-z0-9-]/g, "")
-        .slice(0, 40) || "untitled";
+    const slug = exportSlug();
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const ok = downloadGlyphSvg(pre, `glyphcss-wordart-${slug}-${stamp}.svg`);
     setSvgState(ok ? "downloaded" : "error");
@@ -731,6 +734,70 @@ export function useWordArtWorkbench() {
     outlineOn,
     outlineColor,
     outlineWidth,
+  ]);
+
+  // "Animated SVG": one full turn of the word about the axis auto-spin uses,
+  // baked to an SVG that animates as an image. The mesh turns under the
+  // Stage's own fixed camera and light, so the shading sweeps as it does live.
+  // Solid halfblock/quadrant cells carry a background colour the frames
+  // export cannot encode, so the action is unavailable there.
+  const turntableUnavailable =
+    renderMode === "solid" && (charMode === "halfblock" || charMode === "quadrant")
+      ? `Animated SVG cannot draw solid ${charMode} cells. Choose another character mode.`
+      : null;
+  const [turntableState, setTurntableState] = useState<"idle" | "busy" | "downloaded" | "error">("idle");
+
+  const handleDownloadTurntableSvg = useCallback(() => {
+    setTurntableState("busy");
+    // Let "Rendering" paint before the bake holds the main thread.
+    setTimeout(() => {
+      try {
+        const [, tiltDeg, turnDeg] = stageSnapshotRef.current.rotation;
+        const scaled = centerMesh(polygons).map((p) => ({
+          ...p,
+          vertices: p.vertices.map(([x, y, z]): Vec3 => [x, (y * scaleX) / 100, (z * scaleY) / 100]),
+        }));
+        const { svg } = buildGlyphFramesSvgExport(
+          (frame, frameCount) => rotateMeshVerticesDeg(scaled, [0, tiltDeg, turnDeg + (frame * 360) / frameCount]),
+          {
+            frameCount: 72,
+            durationSec: 8,
+            fontSizePx: 11,
+            cols: 90,
+            rows: 45,
+            fit: true,
+            rotX: 90,
+            rotY: 0,
+            projection: perspective ? "perspective" : "orthographic",
+            mode: renderMode,
+            charMode,
+            hiddenLines,
+            directionalLight: { direction: lightDir, intensity: lightIntensity, color: lightColor },
+            ambientLight: { intensity: ambient },
+          },
+        );
+        downloadSvgText(svg, `glyphcss-wordart-${exportSlug()}-turntable.svg`);
+        setTurntableState("downloaded");
+      } catch (error) {
+        console.error("glyphcss: animated SVG export failed", error);
+        setTurntableState("error");
+      }
+      setTimeout(() => setTurntableState("idle"), 1500);
+    }, 30);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    polygons,
+    scaleX,
+    scaleY,
+    perspective,
+    renderMode,
+    charMode,
+    hiddenLines,
+    lightDir,
+    lightIntensity,
+    lightColor,
+    ambient,
+    text,
   ]);
 
   const codeInput = useMemo<WordArtSnippetInput>(() => {
@@ -1207,6 +1274,9 @@ export function useWordArtWorkbench() {
     copyState,
     handleDownloadSvg,
     svgState,
+    handleDownloadTurntableSvg,
+    turntableState,
+    turntableUnavailable,
     codeOpen,
     toggleCodeOpen,
     setSpin,

@@ -215,6 +215,12 @@ export function glyphSvgFromPre(pre: HTMLElement | null): string | null {
 export function downloadGlyphSvg(pre: HTMLElement | null, filename: string): boolean {
   const svg = glyphSvgFromPre(pre);
   if (svg === null) return false;
+  downloadSvgText(svg, filename);
+  return true;
+}
+
+/** Save an SVG document the caller already built. */
+export function downloadSvgText(svg: string, filename: string): void {
   const blob = new Blob([svg], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -224,5 +230,4 @@ export function downloadGlyphSvg(pre: HTMLElement | null, filename: string): boo
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  return true;
 }

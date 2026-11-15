@@ -60,7 +60,7 @@ describe("supplementary atlas cells in static exports", () => {
   });
 
   it("keeps turntable frames at one common cell width", () => {
-    expect(cropGlyphFrames([`  ${braille}  `, "   @ "])).toEqual({ frames: [`${braille} `, " @"], rows: 1 });
+    expect(cropGlyphFrames([`  ${braille}  `, "   @ "])).toEqual({ frames: [`${braille} `, " @"], rows: 1, cols: 2 });
   });
 
   it("uses one grid track per supplementary code point", () => {

@@ -18,6 +18,7 @@ import {
 import { ModelsSidebar } from "../ModelsSidebar";
 import { StatsOverlay } from "../StatsOverlay";
 import { CopySceneButton } from "./CopySceneButton";
+import { TurntableSvgButton } from "./TurntableSvgButton";
 import styles from "./GalleryWorkbench.module.css";
 import { useGalleryWorkbench } from "./hooks/useGalleryWorkbench";
 
@@ -120,6 +121,7 @@ export default function GalleryWorkbench({ snapshot }: { snapshot?: InstrumentSn
           </InstrumentViewport>
           <InstrumentExportBar>
             <CopySceneButton />
+            <TurntableSvgButton selectedPreset={selectedPreset} options={sceneOptions} />
             <ActionButton
               data-export-trigger
               type="button"

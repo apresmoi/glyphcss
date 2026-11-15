@@ -1,6 +1,6 @@
 ---
 name: glyphcss
-description: Render 3D meshes, primitive shapes, Mermaid diagrams and data charts as text, ASCII, terminal ANSI or HTML with the glyphcss CLI. Use for 3D model previews, flowcharts, sequence diagrams, state diagrams, ER diagrams, Git graphs, bar charts, line charts and other Mermaid or JSON visualizations. For chat-sized charts and diagrams, prefer the dedicated glyphcss-diagrams agent skill.
+description: Render 3D meshes, primitive shapes, Mermaid diagrams and data charts as text, ASCII, terminal ANSI, HTML or an animated SVG with the glyphcss CLI. Use for 3D model previews, rotating README images, flowcharts, sequence diagrams, state diagrams, ER diagrams, Git graphs, bar charts, line charts and other Mermaid or JSON visualizations. For chat-sized charts and diagrams, prefer the dedicated glyphcss-diagrams agent skill.
 ---
 
 # glyphcss — render 3D, diagrams and charts as text
@@ -69,6 +69,20 @@ glyphcss model.glb -f full -o out.html # write an HTML document
 OBJ companion `.mtl` is auto-detected (or `--mtl FILE`); PNG/JPG textures are
 decoded and baked to per-face color.
 
+## Render a rotating image
+
+```sh
+glyphcss model.obj --turntable -o model.svg        # one self-animating SVG
+glyphcss torus --turntable --frames 90 --duration 9 -o torus.svg
+glyphcss cube --turntable -f full -o cube.html     # CSS-only page
+```
+`--turntable` bakes a full turn of a mesh, shape or polygons with no runtime.
+The SVG animates wherever an image is shown, including a GitHub README, where
+scripts and styles are stripped: reference it with `<img src="model.svg">`.
+`--frames N` (default 36) and `--duration SECONDS` (default 8) set the motion,
+`--font-size PX` the text size; `--cols`/`--rows` bound the grid and the turn is
+fitted to it unless `--zoom` is given. Size grows with frames × grid.
+
 ## Render custom polygons
 
 ```sh
@@ -80,6 +94,7 @@ JSON is an array (or `{ "polygons": [...] }`) of `{ vertices: [[x,y,z] ×3+], co
 ## Key options
 
 - **Output** `-f, --format` `ansi` | `text` | `html` | `full` (default: terminal→ansi, `-o` file→html, pipe→text)
+- **Turntable** `--turntable` `--frames N` `--duration S` `--font-size PX`; formats `svg` | `html` | `full` (a `.svg` file → svg)
 - **Frame** `--auto-center` recenters; with no `--cols`/`--rows` it auto-fits the grid to the content (or `--fit N` cols; give one of `--cols`/`--rows` and the other adapts)
 - **Camera** `--rot-x N` `--rot-y N` `--zoom N` `--ortho`
 - **Render** `--mode solid|wireframe|voxel|ink` `--palette default|ascii|blocks|…` `--no-colors`

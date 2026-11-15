@@ -135,10 +135,10 @@ export function cropGlyphInner(inner: string): string {
 /**
  * Crop a set of turntable frames to ONE common content box (across all frames)
  * so they stay equal-size and the model sits centered, with no empty margin.
- * Returns the cropped frame strings (inline-span format) + the new row count.
+ * Returns the cropped frame strings (inline-span format) + the new row and column counts.
  */
-export function cropGlyphFrames(frameInners: string[]): { frames: string[]; rows: number } {
-  if (frameInners.length === 0) return { frames: frameInners, rows: 0 };
+export function cropGlyphFrames(frameInners: string[]): { frames: string[]; rows: number; cols: number } {
+  if (frameInners.length === 0) return { frames: frameInners, rows: 0, cols: 0 };
   const tokenized = frameInners.map((f) => f.split("\n").map(tokenizeLine));
   let minCol = Infinity, maxCol = -1, minRow = Infinity, maxRow = -1;
   for (const frame of tokenized) {
@@ -155,7 +155,7 @@ export function cropGlyphFrames(frameInners: string[]): { frames: string[]; rows
       if (has) { if (row < minRow) minRow = row; if (row > maxRow) maxRow = row; }
     });
   }
-  if (maxCol < 0) return { frames: frameInners, rows: frameInners[0].split("\n").length };
+  if (maxCol < 0) return { frames: frameInners, rows: frameInners[0].split("\n").length, cols: 0 };
   const cropOne = (frame: Run[][]): string => {
     const out: string[] = [];
     for (let row = minRow; row <= maxRow; row++) {
@@ -175,7 +175,7 @@ export function cropGlyphFrames(frameInners: string[]): { frames: string[]; rows
     }
     return out.join("\n");
   };
-  return { frames: tokenized.map(cropOne), rows: maxRow - minRow + 1 };
+  return { frames: tokenized.map(cropOne), rows: maxRow - minRow + 1, cols: maxCol - minCol + 1 };
 }
 
 export function encodeStaticGlyphHtml(

@@ -66,6 +66,9 @@ export function WordArtWorkbench({ snapshot }: { snapshot?: InstrumentSnapshot }
     copyState,
     handleDownloadSvg,
     svgState,
+    handleDownloadTurntableSvg,
+    turntableState,
+    turntableUnavailable,
     codeOpen,
     toggleCodeOpen,
     setSpin,
@@ -175,6 +178,24 @@ export function WordArtWorkbench({ snapshot }: { snapshot?: InstrumentSnapshot }
               title="Download the rendered glyph output as an SVG file"
             >
               {svgState === "downloaded" ? "Downloaded" : svgState === "error" ? "Download failed" : "Download SVG"}
+            </ActionButton>
+            <ActionButton
+              type="button"
+              className="gw-code-panel__action"
+              onClick={handleDownloadTurntableSvg}
+              disabled={turntableState === "busy" || turntableUnavailable !== null}
+              title={
+                turntableUnavailable ??
+                "Download a full turn as an SVG. It animates wherever an image is shown, with no script."
+              }
+            >
+              {turntableState === "busy"
+                ? "Rendering"
+                : turntableState === "downloaded"
+                  ? "Downloaded"
+                  : turntableState === "error"
+                    ? "Download failed"
+                    : "Animated SVG"}
             </ActionButton>
             <ActionButton
               data-export-trigger

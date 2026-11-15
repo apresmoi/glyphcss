@@ -5,6 +5,7 @@
  *   glyphcss duck.glb --auto-center           # ANSI color in the terminal
  *   glyphcss duck.glb -f text                 # plain ASCII
  *   glyphcss duck.glb -f full -o duck.html    # HTML document
+ *   glyphcss duck.glb --turntable -o duck.svg # rotating, self-animating SVG
  *   glyphcss chart spec.json                  # @glyphcss/charts spec -> ANSI/text
  *   glyphcss diagram graph.mmd                # Mermaid flowchart -> ANSI/text
  *
@@ -12,6 +13,10 @@
  * `<pre>`), or `full` (HTML doc). Default picks by destination — terminal → ansi,
  * `-o` file → html, piped → text. With no `--cols`/`--rows` it auto-fits the grid
  * + zoom to the content (cropped tight). Other defaults match the library.
+ *
+ * `--turntable` bakes a full rotation with no runtime: `svg` (one image that
+ * animates anywhere an image is allowed), `html` (a style + markup snippet) or
+ * `full`. Without `--zoom` the turn is fitted to the grid.
  *
  * `glyphcss chart <spec.json>` is a separate subcommand (`@glyphcss/charts`'
  * `GlyphChartSpec`/mark/number-array JSON in, rendered text out) — see
@@ -21,7 +26,8 @@ import { writeFile, readFile } from "node:fs/promises";
 import { buildCompileControlFrame, buildCompileControlFrameFromFile, compileFile, compilePolygons, type CompileFileOptions } from "./compileFile";
 import { compileInteractive, type GlyphInteraction } from "./compileInteractive";
 import { writeGlyphControlMaps } from "./controlMaps";
-import { encodeGlyphAnsi } from "glyphcss";
+import { loadMeshFromFile } from "./loadMeshFromFile";
+import { buildGlyphFramesExport, buildGlyphFramesSvgExport, encodeGlyphAnsi } from "glyphcss";
 import { resolveGeometry } from "@glyphcss/core";
 import type { RenderMode, MeshResolution, Polygon, GlyphGeometryName, Vec3 } from "@glyphcss/core";
 import type { GlyphControlTensorNormalization } from "glyphcss";
@@ -42,7 +48,13 @@ function normalizePolygons(data: unknown): Polygon[] {
   });
 }
 
-type OutputFormat = "text" | "ansi" | "html" | "full";
+type OutputFormat = "text" | "ansi" | "html" | "full" | "svg";
+
+interface Turntable {
+  frames?: number;
+  duration?: number;
+  fontSize?: number;
+}
 
 interface Parsed {
   file?: string;
@@ -53,6 +65,7 @@ interface Parsed {
   polygonsFile?: string;
   polygonsJson?: string;
   interactive: boolean;
+  turntable?: Turntable;
   interactions?: GlyphInteraction[];
   decimateGrid?: number;
   cdnVersion?: string;
@@ -72,6 +85,7 @@ function parseArgs(argv: string[]): Parsed {
   let polygonsFile: string | undefined;
   let polygonsJson: string | undefined;
   let interactive = false;
+  let turntable: Turntable | undefined;
   let interactions: GlyphInteraction[] | undefined;
   let decimateGrid: number | undefined;
   let cdnVersion: string | undefined;
@@ -129,15 +143,19 @@ function parseArgs(argv: string[]): Parsed {
         interactive = true;
         interactions = (next() ?? "").split(",").map((s) => s.trim()).filter(Boolean) as GlyphInteraction[];
         break;
+      case "--turntable": turntable ??= {}; break;
+      case "--frames": (turntable ??= {}).frames = num(next()); break;
+      case "--duration": (turntable ??= {}).duration = num(next()); break;
+      case "--font-size": (turntable ??= {}).fontSize = num(next()); break;
       case "--decimate-grid": decimateGrid = num(next()); break;
       case "--cdn-version": cdnVersion = next(); break;
       case "-o": case "--out": out = next(); break;
-      case "-h": case "--help": file = undefined; return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts };
+      case "-h": case "--help": file = undefined; return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, turntable, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts };
       default:
         if (!a.startsWith("-") && !file) file = a;
     }
   }
-  return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts };
+  return { file, out, format, fit, shape, polygonsFile, polygonsJson, interactive, turntable, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts };
 }
 
 const HELP = `glyphcss <mesh-file | shape> [options]
@@ -153,7 +171,9 @@ const HELP = `glyphcss <mesh-file | shape> [options]
   Labels   --glyph-output visible|semantic --glyph-labels LABELS.json (glyph-label-sidecar/v1)
            --control-out DIR --control-normalization NORMALIZATION.json
   Interact --interactive  --interactions orbit,zoom,pan,fpv  --decimate-grid N  --cdn-version V
-  Output   -f, --format text|ansi|html|full     (default: terminal → ansi, file → html, pipe → text)
+  Turn     --turntable  --frames N  --duration SECONDS  --font-size PX   (a baked rotation, no runtime)
+  Output   -f, --format text|ansi|html|full|svg (default: terminal → ansi, file → html, pipe → text)
+           svg needs --turntable; a turntable is svg, html or full (default: .svg file → svg, else html)
            -o, --out FILE
 `;
 
@@ -176,7 +196,7 @@ async function main(): Promise<void> {
     await runGlyphDiagram(process.argv.slice(3));
     return;
   }
-  const { file, out, format: fmtArg, fit, shape, polygonsFile, polygonsJson, interactive, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts } = parseArgs(process.argv.slice(2));
+  const { file, out, format: fmtArg, fit, shape, polygonsFile, polygonsJson, interactive, turntable, interactions, decimateGrid, cdnVersion, glyphLabels, controlOut, normalizationFile, opts } = parseArgs(process.argv.slice(2));
   // A bare positional with no mesh extension is treated as a shape name.
   const positionalShape = file && !MESH_EXT.test(file) ? file : undefined;
   const meshFile = file && MESH_EXT.test(file) ? file : undefined;
@@ -187,8 +207,43 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (turntable) {
+    const turnFormat = fmtArg ?? (out?.toLowerCase().endsWith(".svg") ? "svg" : "html");
+    if (turnFormat === "text" || turnFormat === "ansi") throw new Error("--turntable writes svg, html or full");
+    const polygons =
+      polygonsJson ? normalizePolygons(JSON.parse(polygonsJson)) :
+      polygonsFile ? normalizePolygons(JSON.parse(await readFile(polygonsFile, "utf8"))) :
+      shapeName ? resolveGeometry(shapeName as GlyphGeometryName, { size: 1 }) :
+      (await loadMeshFromFile(meshFile!, { meshResolution: opts.meshResolution, mtlUrl: opts.mtlUrl })).polygons;
+    const options = {
+      frameCount: turntable.frames, durationSec: turntable.duration, fontSizePx: turntable.fontSize,
+      rotX: opts.rotX, rotY: opts.rotY, zoom: opts.zoom, fit: opts.zoom === undefined,
+      projection: opts.projection, perspectivePx: opts.perspective,
+      cols: opts.cols, rows: opts.rows, cellAspect: opts.cellAspect,
+      mode: opts.mode, glyphPalette: opts.glyphPalette, autoCenter: opts.autoCenter ?? !meshFile,
+    };
+    let output: string;
+    let frameCount: number;
+    if (turnFormat === "svg") {
+      ({ svg: output, frameCount } = buildGlyphFramesSvgExport(polygons, options));
+    } else {
+      const r = buildGlyphFramesExport(polygons, { ...options, layout: "stack" });
+      frameCount = r.frameCount;
+      const snippet = `<style>${r.pen.css}</style>\n${r.html}`;
+      output = turnFormat === "full" ? `<!doctype html>\n<html><head><meta charset="utf-8"><title>glyphcss</title></head>\n<body>${snippet}</body></html>` : snippet;
+    }
+    if (out) {
+      await writeFile(out, output, "utf8");
+      process.stderr.write(`glyphcss: wrote ${out} — turntable, ${frameCount} frames, ${turnFormat}\n`);
+    } else {
+      process.stdout.write(output + "\n");
+    }
+    return;
+  }
+  if (fmtArg === "svg") throw new Error("--format svg needs --turntable");
+
   // Output format: explicit wins; else file → html, terminal → ansi, pipe → text.
-  const format: OutputFormat = fmtArg ?? (out ? "html" : process.stdout.isTTY ? "ansi" : "text");
+  const format = fmtArg ?? (out ? "html" : process.stdout.isTTY ? "ansi" : "text");
   if (glyphLabels) {
     const sidecar = JSON.parse(await readFile(glyphLabels, "utf8")) as GlyphLabelSidecar;
     if (sidecar.schemaVersion !== "glyph-label-sidecar/v1" || !sidecar.scene || !sidecar.dictionary) throw new Error("--glyph-labels must be a glyph-label-sidecar/v1 with scene and dictionary");

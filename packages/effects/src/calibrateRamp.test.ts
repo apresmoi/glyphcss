@@ -1,4 +1,5 @@
-import { createCanvas } from "@napi-rs/canvas";
+import { createCanvas, GlobalFonts } from "@napi-rs/canvas";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { compileScene, spherePolygons, WIREFRAME_PALETTES, type Polygon } from "glyphcss";
 import {
@@ -15,7 +16,15 @@ import {
 const realCanvasFactory: GlyphCoverageCanvasFactory = (w, h) =>
   createCanvas(w, h) as unknown as { getContext(kind: "2d"): GlyphCoverageCanvas2D | null };
 
-const REAL_FONT = { family: "monospace", size: 32 };
+// The faces come from the repo, not the machine: a CI image with no system
+// fonts rasterizes nothing, and every coverage reads zero. One family, a
+// regular and a bold face, so the weight tests have a real 700 to pick.
+const TEST_FAMILY = "GlyphCalibrateTest";
+for (const file of ["../glyphcss/assets/glyph-atlas/sources/dejavu/DejaVuSans.ttf", "../fonts/test/fixtures/Roboto-Bold.ttf"]) {
+  if (!GlobalFonts.registerFromPath(resolve(process.cwd(), file), TEST_FAMILY)) throw new Error(`could not register ${file}`);
+}
+
+const REAL_FONT = { family: TEST_FAMILY, size: 32 };
 
 /**
  * Fully deterministic, environment-independent fake canvas: `fillText`
@@ -131,7 +140,7 @@ describe("calibrateGlyphRamp", () => {
 // gallery's real stack: weight 400 vs 700 advance is bit-identical in every
 // stack tested — a heavier glyph never desyncs the character grid).
 describe("calibrateWeightedGlyphRamp", () => {
-  const MONO_FONT = { family: "Menlo", size: 32 };
+  const MONO_FONT = REAL_FONT;
 
   it("produces a strictly monotonic-coverage ramp mixing weight 400 and 700 steps", () => {
     const result = calibrateWeightedGlyphRamp({
