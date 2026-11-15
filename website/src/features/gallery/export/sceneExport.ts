@@ -1,7 +1,7 @@
 import type { Polygon, Vec2, Vec3 } from "@glyphcss/core";
 import { bakeSolidTextureSampledPolygons, loadMesh } from "@glyphcss/core";
-import type { GlyphInteraction, GlyphStaticEncoding } from "glyphcss";
-import { encodeStaticGlyphHtml } from "glyphcss";
+import type { GlyphFramesExportOptions, GlyphInteraction, GlyphStaticEncoding } from "glyphcss";
+import { buildGlyphFramesSvgExport, encodeStaticGlyphHtml } from "glyphcss";
 import { primitiveGeometrySize } from "../data/presetList";
 import { type GalleryEffectDefinition, galleryEffectExportName } from "../model/effects";
 import type { GalleryEffectState, PresetModel, SceneOptionsState } from "../model/types";
@@ -138,6 +138,52 @@ export function liveGridMetrics(): { cols: number; rows: number; lineHeightPx: n
       : parseFloat(cs.lineHeight) || fontSizePx
     : fontSizePx;
   return { cols, rows, lineHeightPx, fontSizePx };
+}
+
+/** The camera and render settings every turntable export of the live scene shares. */
+export function turntableSceneOptions(options: SceneOptionsState): GlyphFramesExportOptions {
+  return {
+    rotX: options.rotX,
+    rotY: options.rotY,
+    zoom: toRuntimeZoom(options.zoom ?? 0.35),
+    projection: options.perspective === false ? "orthographic" : "perspective",
+    perspectivePx: options.perspective === false ? undefined : options.perspective,
+    mode: options.renderMode === "wireframe" || options.renderMode === "ink" ? options.renderMode : "solid",
+    useColors: options.useColors,
+    autoCenter: true,
+  };
+}
+
+// An image for a README or an issue: wide enough to read, small enough to commit.
+const TURNTABLE_SVG_COLS = 80;
+
+/**
+ * The live scene as one self-animating SVG: a full turn with the scene's
+ * lighting and shadows, fitted to a grid in the live render's proportions.
+ */
+export async function buildTurntableSvg(preset: PresetModel, options: SceneOptionsState): Promise<string> {
+  const { polygons } = await loadExportPolygons(preset);
+  const live = liveGridMetrics();
+  const cols = Math.min(live.cols, TURNTABLE_SVG_COLS);
+  return buildGlyphFramesSvgExport(polygons, {
+    ...turntableSceneOptions(options),
+    zoom: undefined,
+    fit: true,
+    frameCount: 72,
+    durationSec: 8,
+    fontSizePx: 11,
+    cols,
+    rows: Math.max(1, Math.round((cols * live.rows) / live.cols)),
+    directionalLight: {
+      direction: dirFromSpherical(options.lightAzimuth ?? 50, options.lightElevation ?? 45),
+      intensity: options.lightIntensity,
+      color: options.lightColor,
+    },
+    ambientLight: { intensity: options.ambientIntensity, color: options.ambientColor },
+    shadow: options.shadowEnabled
+      ? { opacity: options.shadowOpacity, lift: options.shadowLift, color: options.shadowColor }
+      : undefined,
+  }).svg;
 }
 
 /** POST a CodePen prefill payload (opens a new pen in a new tab). */

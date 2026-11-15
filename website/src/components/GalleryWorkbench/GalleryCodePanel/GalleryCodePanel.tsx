@@ -9,6 +9,7 @@ import {
   loadExportPolygons,
   postToCodepen,
   toRuntimeZoom,
+  turntableSceneOptions,
 } from "../../../features/gallery/export/sceneExport";
 import { type GalleryEffectDefinition } from "../../../features/gallery/model/effects";
 import type { GalleryEffectState, PresetModel, SceneOptionsState } from "../../../features/gallery/model/types";
@@ -74,20 +75,13 @@ export function GalleryCodePanel({
           const { polygons } = await loadExportPolygons(selectedPreset);
           const g = liveGridMetrics();
           const frames = buildGlyphFramesExport(polygons, {
+            ...turntableSceneOptions(options),
             frameCount: 36,
-            rotX: options.rotX,
-            rotY: options.rotY,
-            zoom: toRuntimeZoom(options.zoom ?? 0.35),
-            projection,
-            perspectivePx,
             // pad the grid so the silhouette doesn't clip as it turns
             cols: Math.round(g.cols * 1.3),
             rows: Math.round(g.rows * 1.3),
             lineHeightPx: g.lineHeightPx,
             fontSizePx: g.fontSizePx,
-            mode: options.renderMode === "wireframe" || options.renderMode === "ink" ? options.renderMode : "solid",
-            useColors: options.useColors,
-            autoCenter: true,
           });
           postToCodepen({
             action: "https://codepen.io/pen/define",
