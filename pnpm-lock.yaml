@@ -589,6 +589,9 @@ importers:
       '@astrojs/compiler':
         specifier: 3.0.1
         version: 3.0.1
+      '@glyphcss/compile':
+        specifier: workspace:^
+        version: link:../packages/compile
       happy-dom:
         specifier: ^20.7.0
         version: 20.8.9
