@@ -436,7 +436,7 @@ There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays up
   <a href="https://asciiquake.wtf"><img src="assets/readme/asciiquake.svg" alt="A walk through the first hall of Quake, rendered as coloured text" width="100%"></a>
 </p>
 
-> **asciiQuake**: id Software's Quake, played as text in the DOM. Every frame above is glyphcss output, replayed with CSS alone.
+> **asciiQuake**: id Software's Quake, played as text in the DOM.
 >
 > [Play it at asciiquake.wtf](https://asciiquake.wtf) · [Source on GitHub](https://github.com/apresmoi/asciiQuake)
 
