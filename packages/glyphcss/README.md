@@ -167,6 +167,7 @@ like `charMode`. See `bench/color-tolerance.md` for measured span/FPS numbers.
 
 - `compileScene(opts)` — pure: polygons + camera → the `<pre>` string, byte-identical to the runtime render.
 - `buildGlyphInteractiveExport` / `glyphCodepenPrefill` — polygons + declared interactions → a portable, self-contained snippet.
+- `buildGlyphFramesExport` / `buildGlyphFramesSvgExport` — a full rotation baked to frames: HTML + CSS, or one SVG that animates as an image (in a README, for example).
 - [`@glyphcss/compile`](https://www.npmjs.com/package/@glyphcss/compile) — Node adapters, a Vite plugin, and a CLI (`glyphcss cube --auto-center`).
 
 ## Cell canvas (foundation for `@glyphcss/charts` / `@glyphcss/diagrams`)
