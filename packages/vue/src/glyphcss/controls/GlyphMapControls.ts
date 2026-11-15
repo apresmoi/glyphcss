@@ -11,6 +11,12 @@ export interface GlyphMapControlsProps {
   wheel?: boolean;
   invert?: boolean | number;
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
+  /**
+   * Slide the picture with a CSS transform while panning instead of
+   * re-rendering every move (orthographic cameras). Default false. See
+   * `createGlyphMapControls`'s own doc.
+   */
+  compositorPan?: boolean;
 }
 
 export const GlyphMapControls = defineComponent({
@@ -20,6 +26,7 @@ export const GlyphMapControls = defineComponent({
     wheel: { type: Boolean, default: true },
     invert: { type: [Boolean, Number] as unknown as () => boolean | number, default: false },
     animate: { type: [Boolean, Object] as unknown as () => false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean }, default: false },
+    compositorPan: { type: Boolean, default: false },
   },
   setup(props) {
     const sceneCtx = inject(GlyphSceneContextKey);
@@ -39,6 +46,7 @@ export const GlyphMapControls = defineComponent({
         wheel: props.wheel,
         invert: props.invert,
         animate: props.animate === false ? false : props.animate,
+        compositorPan: props.compositorPan,
       };
       controlsRef.value = createGlyphMapControls(scene, opts);
     });
@@ -50,13 +58,14 @@ export const GlyphMapControls = defineComponent({
     });
 
     watch(
-      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, animate: props.animate }),
+      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, animate: props.animate, compositorPan: props.compositorPan }),
       (next) => {
         controlsRef.value?.update({
           drag: next.drag,
           wheel: next.wheel,
           invert: next.invert,
           animate: next.animate === false ? false : next.animate,
+          compositorPan: next.compositorPan,
         });
       },
     );

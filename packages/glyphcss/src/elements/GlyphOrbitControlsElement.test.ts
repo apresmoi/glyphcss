@@ -200,4 +200,14 @@ describe("GlyphOrbitControlsElement", () => {
     expect(() => { document.body.appendChild(freshCam); }).not.toThrow();
     freshCam.remove();
   });
+  it("compositor-pan is observed and reaches the controls", () => {
+    expect(GlyphOrbitControlsElement.observedAttributes).toContain("compositor-pan");
+    const options = (el: GlyphOrbitControlsElement): unknown => (el as unknown as { _readOptions(): unknown })._readOptions();
+    const el = document.createElement("glyph-orbit-controls") as GlyphOrbitControlsElement;
+    expect(options(el)).not.toHaveProperty("compositorPan");
+    el.setAttribute("compositor-pan", "");
+    expect(options(el)).toMatchObject({ compositorPan: true });
+    el.setAttribute("compositor-pan", "false");
+    expect(options(el)).toMatchObject({ compositorPan: false });
+  });
 });

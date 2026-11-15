@@ -24,6 +24,7 @@
 import type { Vec3 } from "@glyphcss/core";
 import type { GlyphSceneHandle } from "./createGlyphScene";
 import { makeListenerRegistry, makeCameraSnapshot, makeEventMethods, type GlyphControlsEventTarget } from "./controls/common";
+import { createCompositorPan, type CompositorPan } from "./controls/compositorPan";
 export type {
   GlyphControlsCamera,
   GlyphControlsChangeEvent,
@@ -87,6 +88,20 @@ export interface GlyphOrbitControlsOptions {
    * modifier no existing gesture used.
    */
   pan?: boolean;
+  /**
+   * Slide the picture instead of re-rendering it while panning. A pan
+   * gesture renders once on a grid with a quarter-grid margin on every side,
+   * then moves the scene element with a CSS `transform`; it renders again
+   * only when the slide nears the margin, and once more on the scene's own
+   * grid when the gesture ends, so the frame a pan leaves behind is
+   * byte-identical to a plain render. Orthographic cameras only; a
+   * perspective camera, `interactiveDownscale > 1` or `temporalBlend` falls
+   * back to rendering every move. While a pan is live `getOptions()` reports
+   * the margin grid and the host clips its overflow, so a `transformCells`
+   * hook that draws at fixed screen cells should leave this off. Default
+   * `false`.
+   */
+  compositorPan?: boolean;
 }
 
 export interface GlyphOrbitControlsHandle extends GlyphControlsEventTarget {
@@ -117,6 +132,9 @@ export function createGlyphOrbitControls(
   let mode: GlyphOrbitControlsMode = options.mode ?? "turntable";
   let animOpts = options.animate ?? false;
   let pan = options.pan ?? true;
+  let compositorPan: CompositorPan | null = options.compositorPan ? createCompositorPan(scene) : null;
+  /** A pan-only move: a translation of the last render when the compositor pan is on. */
+  const renderPan = (): void => { if (compositorPan) compositorPan.render(); else scene.rerender(); };
   let stopped = false;
   let animPaused = false;
   let rafId: ReturnType<typeof requestAnimationFrame> | null = null;
@@ -289,6 +307,7 @@ export function createGlyphOrbitControls(
       if (!zoomActive && !twistActive && !panActive) return;
       e.preventDefault();
       let changed = false;
+      let panOnly = false;
       if (zoomActive) {
         const d = twoFingerDist();
         if (pinchDist > 0 && d > 0) {
@@ -311,11 +330,12 @@ export function createGlyphOrbitControls(
         pinchMidpoint = mid;
         if (dx !== 0 || dy !== 0) {
           panCamera(dx, dy);
+          panOnly = !changed;
           changed = true;
         }
       }
       if (changed) {
-        scene.rerender();
+        if (panOnly) renderPan(); else scene.rerender();
         emitChange(snapshot);
       }
       return;
@@ -329,7 +349,7 @@ export function createGlyphOrbitControls(
       const dy = e.clientY - pointer.y;
       pointer = { x: e.clientX, y: e.clientY };
       panCamera(dx, dy);
-      scene.rerender();
+      renderPan();
       emitChange(snapshot);
       return;
     }
@@ -375,6 +395,7 @@ export function createGlyphOrbitControls(
     } else if (pointers.size === 0) {
       host.style.cursor = drag && !stopped ? "grab" : "";
       if (animOpts) animPaused = false;
+      compositorPan?.settle();
       emitInteraction("end", snapshot);
     }
   }
@@ -481,6 +502,10 @@ export function createGlyphOrbitControls(
       drag = opts.drag ?? drag;
       wheel = opts.wheel ?? wheel;
       pan = opts.pan ?? pan;
+      if (opts.compositorPan !== undefined && opts.compositorPan !== !!compositorPan) {
+        compositorPan?.destroy();
+        compositorPan = opts.compositorPan ? createCompositorPan(scene) : null;
+      }
       invertFactor = resolveInvert(opts.invert);
       if (opts.pitchRange !== undefined) pitchRange = opts.pitchRange;
       if (opts.zoomRange !== undefined) zoomRange = opts.zoomRange;
@@ -527,6 +552,7 @@ export function createGlyphOrbitControls(
       detach();
       stopAnim();
       clearWheelIdle();
+      compositorPan?.settle();
       activePointerId = null;
       activePointerMode = null;
       animPaused = false;
@@ -541,6 +567,8 @@ export function createGlyphOrbitControls(
       if (!stopped) detach();
       stopAnim();
       clearWheelIdle();
+      compositorPan?.destroy();
+      compositorPan = null;
       stopped = true;
     },
     getTarget(): Vec3 {

@@ -95,4 +95,14 @@ describe("GlyphMapControlsElement", () => {
     controls.setAttribute("invert", "true");
     expect(() => { sceneEl.appendChild(controls); }).not.toThrow();
   });
+  it("compositor-pan is observed and reaches the controls", () => {
+    expect(GlyphMapControlsElement.observedAttributes).toContain("compositor-pan");
+    const options = (el: GlyphMapControlsElement): unknown => (el as unknown as { _readOptions(): unknown })._readOptions();
+    const el = document.createElement("glyph-map-controls") as GlyphMapControlsElement;
+    expect(options(el)).not.toHaveProperty("compositorPan");
+    el.setAttribute("compositor-pan", "");
+    expect(options(el)).toMatchObject({ compositorPan: true });
+    el.setAttribute("compositor-pan", "false");
+    expect(options(el)).toMatchObject({ compositorPan: false });
+  });
 });

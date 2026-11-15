@@ -15,6 +15,7 @@ import type { GlyphSceneHandle } from "./createGlyphScene";
 import type { GlyphProjectionMetrics } from "./createGlyphCamera";
 import type { Vec3 } from "@glyphcss/core";
 import { makeListenerRegistry, makeCameraSnapshot, makeEventMethods, type GlyphControlsEventTarget } from "./controls/common";
+import { createCompositorPan, type CompositorPan } from "./controls/compositorPan";
 export type {
   GlyphControlsCamera,
   GlyphControlsChangeEvent,
@@ -28,6 +29,20 @@ export interface GlyphMapControlsOptions {
   wheel?: boolean;
   invert?: boolean | number;
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
+  /**
+   * Slide the picture instead of re-rendering it while panning. A pan
+   * gesture renders once on a grid with a quarter-grid margin on every side,
+   * then moves the scene element with a CSS `transform`; it renders again
+   * only when the slide nears the margin, and once more on the scene's own
+   * grid when the gesture ends, so the frame a pan leaves behind is
+   * byte-identical to a plain render. Orthographic cameras only; a
+   * perspective camera, `interactiveDownscale > 1` or `temporalBlend` falls
+   * back to rendering every move. While a pan is live `getOptions()` reports
+   * the margin grid and the host clips its overflow, so a `transformCells`
+   * hook that draws at fixed screen cells should leave this off. Default
+   * `false`.
+   */
+  compositorPan?: boolean;
 }
 
 export interface GlyphMapControlsHandle extends GlyphControlsEventTarget {
@@ -46,6 +61,7 @@ export function createGlyphMapControls(
   let wheel = options.wheel ?? true;
   let invertFactor = resolveInvert(options.invert);
   let animOpts = options.animate ?? false;
+  let compositorPan: CompositorPan | null = options.compositorPan ? createCompositorPan(scene) : null;
   let stopped = false;
   let animPaused = false;
   let rafId: ReturnType<typeof requestAnimationFrame> | null = null;
@@ -167,7 +183,8 @@ export function createGlyphMapControls(
     pointer = { x: e.clientX, y: e.clientY };
     const f = invertFactor;
 
-    if (rightDown || e.shiftKey) {
+    const orbiting = rightDown || e.shiftKey;
+    if (orbiting) {
       // Orbit — rotX/rotY in degrees
       camera.rotY = camera.rotY - dx * DEG_PER_PX * f;
       camera.rotX = Math.max(-90, Math.min(90, camera.rotX + dy * DEG_PER_PX * f));
@@ -182,7 +199,7 @@ export function createGlyphMapControls(
         ] as Vec3;
       }
     }
-    scene.rerender();
+    if (compositorPan && !orbiting) compositorPan.render(); else scene.rerender();
     emitChange(snapshot);
   }
 
@@ -203,6 +220,7 @@ export function createGlyphMapControls(
       rightDown = false;
       host.style.cursor = drag && !stopped ? "grab" : "";
       if (animOpts) animPaused = false;
+      compositorPan?.settle();
       emitInteraction("end", snapshot);
     }
   }
@@ -295,15 +313,19 @@ export function createGlyphMapControls(
       drag = opts.drag ?? drag;
       wheel = opts.wheel ?? wheel;
       invertFactor = resolveInvert(opts.invert);
+      if (opts.compositorPan !== undefined && opts.compositorPan !== !!compositorPan) {
+        compositorPan?.destroy();
+        compositorPan = opts.compositorPan ? createCompositorPan(scene) : null;
+      }
       animOpts = opts.animate ?? animOpts;
       if (!stopped && activePointerId === null) host.style.cursor = drag ? "grab" : "";
       const isAnimating = !!animOpts;
       if (wasAnimating && !isAnimating) stopAnim();
       else if (!wasAnimating && isAnimating) startAnim();
     },
-    pause(): void { if (stopped) return; stopped = true; detach(); stopAnim(); clearWheelIdle(); activePointerId = null; animPaused = false; },
+    pause(): void { if (stopped) return; stopped = true; detach(); stopAnim(); clearWheelIdle(); compositorPan?.settle(); activePointerId = null; animPaused = false; },
     resume(): void { if (!stopped) return; stopped = false; attach(); startAnim(); },
-    destroy(): void { if (!stopped) detach(); stopAnim(); clearWheelIdle(); stopped = true; },
+    destroy(): void { if (!stopped) detach(); stopAnim(); clearWheelIdle(); compositorPan?.destroy(); compositorPan = null; stopped = true; },
   };
 }
 

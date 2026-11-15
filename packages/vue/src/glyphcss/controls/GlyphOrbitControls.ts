@@ -35,6 +35,12 @@ export interface GlyphOrbitControlsProps {
    * pans `camera.target` in the screen plane. Default true.
    */
   pan?: boolean;
+  /**
+   * Slide the picture with a CSS transform while panning instead of
+   * re-rendering every move (orthographic cameras). Default false. See
+   * `createGlyphOrbitControls`'s own doc.
+   */
+  compositorPan?: boolean;
 }
 
 export const GlyphOrbitControls = defineComponent({
@@ -48,6 +54,7 @@ export const GlyphOrbitControls = defineComponent({
     animate: { type: [Boolean, Object] as unknown as () => false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean }, default: false },
     zoomRange: { type: null as unknown as PropType<[number, number] | null | undefined>, default: undefined },
     pan: { type: Boolean, default: true },
+    compositorPan: { type: Boolean, default: false },
   },
   setup(props) {
     const sceneCtx = inject(GlyphSceneContextKey);
@@ -71,6 +78,7 @@ export const GlyphOrbitControls = defineComponent({
         animate: props.animate === false ? false : props.animate,
         zoomRange: props.zoomRange,
         pan: props.pan,
+        compositorPan: props.compositorPan,
       };
       controlsRef.value = createGlyphOrbitControls(scene, opts);
     });
@@ -82,7 +90,7 @@ export const GlyphOrbitControls = defineComponent({
     });
 
     watch(
-      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, pitchRange: props.pitchRange, mode: props.mode, animate: props.animate, zoomRange: props.zoomRange, pan: props.pan }),
+      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, pitchRange: props.pitchRange, mode: props.mode, animate: props.animate, zoomRange: props.zoomRange, pan: props.pan, compositorPan: props.compositorPan }),
       (next) => {
         controlsRef.value?.update({
           drag: next.drag,
@@ -93,6 +101,7 @@ export const GlyphOrbitControls = defineComponent({
           animate: next.animate === false ? false : next.animate,
           zoomRange: next.zoomRange,
           pan: next.pan,
+          compositorPan: next.compositorPan,
         });
       },
     );

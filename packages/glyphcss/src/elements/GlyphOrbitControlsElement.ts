@@ -51,7 +51,7 @@ function parseMode(value: string | null): "turntable" | "trackball" | undefined 
 
 export class GlyphOrbitControlsElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
-    return ["drag", "wheel", "invert", "pitch-range", "mode", "animate-speed", "animate-axis", "zoom-range", "pan"];
+    return ["drag", "wheel", "invert", "pitch-range", "mode", "animate-speed", "animate-axis", "zoom-range", "pan", "compositor-pan"];
   }
 
   private _controls: GlyphOrbitControlsHandle | null = null;
@@ -85,6 +85,7 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
     // rather than un-derivable "back to auto".
     const zoomRange = parseZoomRange(this.getAttribute("zoom-range"));
     const pan = parseBool(this.getAttribute("pan"));
+    const compositorPan = parseBool(this.getAttribute("compositor-pan"));
     return {
       ...(drag !== undefined ? { drag } : {}),
       ...(wheel !== undefined ? { wheel } : {}),
@@ -99,6 +100,7 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
       ...(speed !== undefined ? { animate: { speed, axis } } : {}),
       ...(zoomRange !== undefined ? { zoomRange } : {}),
       ...(pan !== undefined ? { pan } : {}),
+      ...(compositorPan !== undefined ? { compositorPan } : {}),
     };
   }
 
