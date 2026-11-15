@@ -102,11 +102,13 @@ const { svg, width, height } = buildGlyphFramesSvgExport(polygons, {
 | `fit` | `false`; scales `zoom` until the whole turn fills `cols` × `rows`. The CLI fits unless `--zoom` is given |
 | `layout` | `"roll"`; `"stack"` gives one `<pre>` per frame, switched by `visibility`. HTML export only |
 | `directionalLight`, `ambientLight`, `shadow` | As in `compileScene`. `shadow` makes the model cast onto itself |
+| `charMode`, `hiddenLines` | As in `compileScene`. Solid `"halfblock"` and `"quadrant"` are rejected: their cells carry a background colour |
 | `fontSizePx`, `lineHeightPx` | `13`, the font size |
 
 - Use the SVG where markup is sanitised: a README, an issue or an email keeps an image's own animation but strips scripts and styles.
 - An SVG shown as an image cannot react to the reader, and its text is not selectable. Use the HTML export where that matters.
 - The camera orbits the model, so light and shadows turn with it.
+- Pass a function in place of the polygons, `(frame, frameCount) => Polygon[]`, to supply each frame's geometry yourself. The camera and the light then stay still, so a model can turn on any axis and its shading sweeps across it.
 - The SVG draws with the reader's monospace font. Braille and box-drawing palettes depend on that font's coverage.
 - The CLI writes `svg`, `html` (style + markup) or `full`; a `.svg` output name selects `svg`.
 
