@@ -72,9 +72,42 @@ Inputs: a geometry name, `.obj` / `.glb` / `.gltf` / `.vox` / `.stl`, `--polygon
 | Function | Ships / limits |
 |---|---|
 | `buildGlyphInteractiveExport` (`glyphcss`) | Mesh + runtime; `interactions` selects orbit, zoom, pan, or FPV; optional stock `effect` |
-| `buildGlyphFramesExport` (`glyphcss`) | Baked one-axis rotation; fixed resolution, payload grows with `frameCount` |
+| `buildGlyphFramesExport` (`glyphcss`) | Baked one-axis rotation as HTML + CSS; fixed resolution, payload grows with `frameCount` |
+| `buildGlyphFramesSvgExport` (`glyphcss`) | The same rotation as one SVG that animates as an image |
 | `buildGlyphFieldSynthStaticExport` (`@glyphcss/effects`) | Field-synth animation over fixed geometry/camera, without runtime imports |
 
 Only field synth has an effect-only static export. Check `isGlyphFieldSynthStaticExportSupported(params)`; volumetric, carve, and xray patches need interactive export. Custom effects and `program` are unsupported by these effect export paths.
+
+### Baked rotation
+
+A turntable is every view rendered ahead of time, so the export carries no mesh and no runtime.
+
+```sh
+glyphcss castle.obj --turntable --frames 90 --duration 9 -o castle.svg
+```
+
+```ts
+import { buildGlyphFramesSvgExport } from "glyphcss";
+
+const { svg, width, height } = buildGlyphFramesSvgExport(polygons, {
+  frameCount: 90, durationSec: 9, cols: 60, rows: 40, fit: true, autoCenter: true,
+  directionalLight: { direction: [-0.45, 0.35, 0.82], intensity: 1.1 },
+  shadow: { opacity: 0.8 },
+});
+```
+
+| Option | Default / use |
+|---|---|
+| `frameCount`, `durationSec` | `36`, `8`; frames per turn and seconds per turn |
+| `fit` | `false`; scales `zoom` until the whole turn fills `cols` × `rows`. The CLI fits unless `--zoom` is given |
+| `layout` | `"roll"`; `"stack"` gives one `<pre>` per frame, switched by `visibility`. HTML export only |
+| `directionalLight`, `ambientLight`, `shadow` | As in `compileScene`. `shadow` makes the model cast onto itself |
+| `fontSizePx`, `lineHeightPx` | `13`, the font size |
+
+- Use the SVG where markup is sanitised: a README, an issue or an email keeps an image's own animation but strips scripts and styles.
+- An SVG shown as an image cannot react to the reader, and its text is not selectable. Use the HTML export where that matters.
+- The camera orbits the model, so light and shadows turn with it.
+- The SVG draws with the reader's monospace font. Braille and box-drawing palettes depend on that font's coverage.
+- The CLI writes `svg`, `html` (style + markup) or `full`; a `.svg` output name selects `svg`.
 
 For text diagrams and charts, see the [diagram CLI](/diagrams/cli/) and [chart CLI](/charts/cli/).

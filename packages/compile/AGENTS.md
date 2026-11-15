@@ -1,6 +1,6 @@
 # @glyphcss/compile — agent guide
 
-Node-only (uses fs) build-time adapters over glyphcss's pure `compileScene`: `loadMeshFromFile`, `compileFile`, the Vite plugin (`?glyph`), the `glyphcss` CLI (mesh, `chart`, `diagram`), `compileInteractive` and `writeGlyphControlMaps`. General rules are in the root `AGENTS.md`; `compileScene` itself is covered in `packages/glyphcss/AGENTS.md`.
+Node-only (uses fs) build-time adapters over glyphcss's pure `compileScene`: `loadMeshFromFile`, `compileFile`, the Vite plugin (`?glyph`), the `glyphcss` CLI (mesh, `--turntable`, `chart`, `diagram`), `compileInteractive` and `writeGlyphControlMaps`. General rules are in the root `AGENTS.md`; `compileScene` itself is covered in `packages/glyphcss/AGENTS.md`.
 
 ## Invariants
 
@@ -12,4 +12,4 @@ Node-only (uses fs) build-time adapters over glyphcss's pure `compileScene`: `lo
 
 ## Don't
 
-- Don't expect a mounted effect in compiled output: `compileScene` and the frame-roll export ignore effects. Only the interactive export (a stock effect by id from the CDN) and `buildGlyphFieldSynthStaticExport` carry one.
+- Don't expect a mounted effect in compiled output: `compileScene` and the turntable exports ignore effects. Only the interactive export (a stock effect by id from the CDN) and `buildGlyphFieldSynthStaticExport` carry one.

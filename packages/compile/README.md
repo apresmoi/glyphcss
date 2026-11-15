@@ -148,6 +148,22 @@ toCodepenPrefill(r); // → { action, data } to POST a new CodePen
 The pure, browser-safe builder is `buildGlyphInteractiveExport(polygons, opts)` in
 `glyphcss` — the gallery's "CodePen" button calls it directly on the loaded mesh.
 
+## Turntable export
+
+`--turntable` bakes a full rotation with no mesh and no runtime in the output.
+As an SVG it animates anywhere an image is allowed, including a README:
+
+```sh
+glyphcss castle.obj --turntable --frames 90 --duration 9 -o castle.svg
+glyphcss torus --turntable -f full -o torus.html   # CSS-only page
+```
+
+`--frames`, `--duration` (seconds per turn) and `--font-size` set the motion;
+the camera and grid flags apply as usual, and the turn is fitted to the grid
+unless `--zoom` is given. Formats are `svg`, `html` (style + markup) and `full`.
+The builders are `buildGlyphFramesSvgExport` and `buildGlyphFramesExport` in
+`glyphcss`; pair them with `loadMeshFromFile` for lighting and shadow options.
+
 | `interactions` | Ships |
 |---|---|
 | `[]` | static scene, no control |
