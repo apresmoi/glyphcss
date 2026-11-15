@@ -17,6 +17,21 @@ scene.setOptions({ interactiveDownscale: 2 });
 
 The bundled controls lower resolution during gestures and restore it on release. Custom controls call `scene.setInteracting(true)` / `false`.
 
+### Slide instead of re-rendering: `compositorPan`
+
+```ts
+createGlyphOrbitControls(scene, { compositorPan: true });
+createGlyphMapControls(scene, { compositorPan: true });
+```
+
+Under an orthographic camera a pan only moves the picture, so it does not need a new render for every pointer move. With `compositorPan` a pan gesture renders once on a grid with a quarter-grid margin on every side, then moves the scene with a CSS `transform`. It renders again only when the slide nears the margin, and once more on release, on the scene's own grid: the frame a pan leaves behind is byte-identical to a plain pan. Measured on a 7,000-polygon model at 150 x 120 cells, a pan move costs about 0.5 ms of main-thread time instead of 4 ms.
+
+It is opt-in, and falls back to rendering every move under a perspective camera, `interactiveDownscale` above 1 or `temporalBlend`. While a pan is live:
+
+- `scene.getOptions()` reports the margin grid, and the host has `overflow: hidden`.
+- A `transformCells` hook receives the margin grid, so one that draws at fixed screen cells (a HUD) should leave this off.
+- The ordered dither of solid shading rides with the picture instead of staying on the screen lattice, and returns to it on release.
+
 ## Spans, not just cells: `colorTolerance`
 
 <GlyphDemo hotspot={false} client:visible id="performance-colors" mesh="/gallery/glb/Watermelon.glb" controls='["colorTolerance"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"spans","colorTolerance":0}' showStats />

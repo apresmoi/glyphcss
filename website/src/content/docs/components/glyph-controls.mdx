@@ -32,6 +32,7 @@ restores full detail on release.
 | `pitchRange` | `[number, number] \| null` | `[-90, 90]` | Turntable-mode pitch clamp in degrees. `null` for globe-style unrestricted tumbling (views past either pole; the up-vector never rolls) |
 | `mode` | `"turntable" \| "trackball"` | `"turntable"` | `"trackball"` rotates about the screen axis perpendicular to the drag, reaching any orientation including roll (two-finger twist rolls) |
 | `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation config. `axis` is `"x"` or `"y"` |
+| `compositorPan` | `boolean` | `false` | Slide the picture with a CSS transform while panning instead of re-rendering every move. Orthographic cameras only; see [performance](/guides/performance/) |
 
 <Tabs syncKey="fw">
   <TabItem label="React">
@@ -113,6 +114,7 @@ zooms. Best for top-down maps or floor-plan scenes.
 | `wheel` | `boolean` | `true` | Enable scroll-to-zoom |
 | `invert` | `boolean \| number` | `false` | Invert drag direction |
 | `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation. `axis` is `"x"` or `"y"` |
+| `compositorPan` | `boolean` | `false` | Slide the picture with a CSS transform while panning instead of re-rendering every move. Orthographic cameras only; see [performance](/guides/performance/) |
 
 <Tabs syncKey="fw">
   <TabItem label="React">

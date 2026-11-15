@@ -23,7 +23,7 @@ function findScene(el: HTMLElement): GlyphSceneElement | null {
 
 export class GlyphMapControlsElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
-    return ["drag", "wheel", "invert"];
+    return ["drag", "wheel", "invert", "compositor-pan"];
   }
 
   private _controls: GlyphMapControlsHandle | null = null;
@@ -43,10 +43,12 @@ export class GlyphMapControlsElement extends ELEMENT_BASE {
     const drag = parseBool(this.getAttribute("drag"));
     const wheel = parseBool(this.getAttribute("wheel"));
     const invert = parseBool(this.getAttribute("invert"));
+    const compositorPan = parseBool(this.getAttribute("compositor-pan"));
     return {
       ...(drag !== undefined ? { drag } : {}),
       ...(wheel !== undefined ? { wheel } : {}),
       ...(invert !== undefined ? { invert } : {}),
+      ...(compositorPan !== undefined ? { compositorPan } : {}),
     };
   }
 

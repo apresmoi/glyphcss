@@ -1,6 +1,6 @@
 # glyphcss — package agent guide
 
-Vanilla renderer: the ASCII rasteriser, scene/mesh/effect/hotspot/object APIs, cameras and controls, custom elements, the 2D cell canvas, and `compileScene`. Repo-wide rules live in the root `AGENTS.md`; the why behind each mechanism lives in comments beside the code.
+Vanilla renderer: the ASCII rasteriser, scene/mesh/effect/hotspot/object APIs, cameras and controls, custom elements, the 2D cell canvas, and `compileScene`.
 
 ## Model
 
@@ -27,10 +27,10 @@ One render pass walks all meshes in scene order, projects through the camera, fi
 - Canvas painters validate colours as canonical lowercase `#rrggbb` at write time and refuse `occluded`/`textFiller` cells; `resolveJunctions()` is idempotent; tiers are data tables, never branches on tier name.
 - `compileScene` is byte-identical to the runtime render; its `grid` is `null` for SOLID-mode halfblock/quadrant only (wireframe's single-colour sub-cell charModes always get a real grid); detail-layer options on object members throw; `objects` with semantic output throws.
 - `interactiveDownscale` divides `cols`/`rows` in place during a gesture; DOM-overlay consumers read `getBaseResolution()`.
+- `compositorPan` (controls, opt-in, ortho): one render on a margin grid (multiples of 4, the dither period), then `.glyph-scene` translates; other renders re-anchor; the release settle equals a plain pan byte for byte.
 - Render-path cost reductions (cull runs, vertex index, memoization, depth before texture) must stay byte-identical; alpha rejection stays ahead of the depth write.
 - `atlas` encoding falls back to spans as a whole-scene decision; `fontAtlas` is fixed at creation; `dense` stays printable ASCII. Universal: 212 originals keep BMP PUA addresses, brailles at U+F0000 + slot × 248 + index (`extension`, 30 slots, shared U+28FF fitting box). Braille-dots (fluid): dot rectangles, em = 1 × 1.6 cell, U+F0000 + slot × 256 + mask. Encoded text is code-point-indexed (PUA-A cells are surrogate pairs).
 - Shipped atlases (universal, ASCII, braille-dots) share PUA ranges: decode by `font-family` (`glyphAtlasForFamily`). Each WOFF2 loads lazily, only when named; universal/ASCII artifacts are SHA-pinned.
-- Public API changes land in `@glyphcss/react` and `@glyphcss/vue` in the same PR; data-shaped element options are JS properties.
 
 ## Don't
 

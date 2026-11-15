@@ -41,6 +41,12 @@ export interface GlyphOrbitControlsProps {
    * pans `camera.target` in the screen plane. Default true.
    */
   pan?: boolean;
+  /**
+   * Slide the picture with a CSS transform while panning instead of
+   * re-rendering every move (orthographic cameras). Default false. See
+   * `createGlyphOrbitControls`'s own doc.
+   */
+  compositorPan?: boolean;
 }
 
 export function GlyphOrbitControls({
@@ -52,12 +58,13 @@ export function GlyphOrbitControls({
   animate = false,
   zoomRange,
   pan = true,
+  compositorPan = false,
 }: GlyphOrbitControlsProps): null {
   const { sceneRef } = useGlyphSceneContext();
   const controlsRef = useRef<GlyphOrbitControlsHandle | null>(null);
 
-  const propsRef = useRef({ drag, wheel, invert, pitchRange, mode, animate, zoomRange, pan });
-  propsRef.current = { drag, wheel, invert, pitchRange, mode, animate, zoomRange, pan };
+  const propsRef = useRef({ drag, wheel, invert, pitchRange, mode, animate, zoomRange, pan, compositorPan });
+  propsRef.current = { drag, wheel, invert, pitchRange, mode, animate, zoomRange, pan, compositorPan };
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -72,6 +79,7 @@ export function GlyphOrbitControls({
       animate: propsRef.current.animate === false ? false : propsRef.current.animate,
       zoomRange: propsRef.current.zoomRange,
       pan: propsRef.current.pan,
+      compositorPan: propsRef.current.compositorPan,
     };
     const controls = createGlyphOrbitControls(scene, opts);
     controlsRef.current = controls;
@@ -86,7 +94,7 @@ export function GlyphOrbitControls({
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
-    controls.update({ drag, wheel, invert, pitchRange, mode, animate: animate === false ? false : animate, zoomRange, pan });
+    controls.update({ drag, wheel, invert, pitchRange, mode, animate: animate === false ? false : animate, zoomRange, pan, compositorPan });
   });
 
   return null;
