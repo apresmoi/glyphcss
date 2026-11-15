@@ -1,7 +1,7 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.png">
-    <img alt="glyphcss" src="assets/wordmark-light.png" width="440">
+    <source media="(prefers-color-scheme: dark)" srcset="assets/readme/wordmark-dark.svg">
+    <img alt="glyphcss" src="assets/readme/wordmark-light.svg" width="440">
   </picture>
 </h1>
 
@@ -12,7 +12,12 @@
 
 ASCII polygon-mesh renderer for the DOM — projects 3D meshes into a monospace character grid in a single `<pre>`. No WebGL, no canvas, no per-polygon DOM.
 
-![glyphcss — ETOPO1 world topography rasterised to ASCII](assets/banner.png)
+<p align="center">
+  <img src="assets/readme/apple.svg" alt="An apple rendered as coloured text, spinning" width="24%">
+  <img src="assets/readme/castle.svg" alt="A castle rendered as coloured text, spinning" width="24%">
+  <img src="assets/readme/house.svg" alt="A house rendered as coloured text, spinning" width="24%">
+  <img src="assets/readme/coliseum.svg" alt="The Colosseum rendered as coloured text, spinning" width="24%">
+</p>
 
 ## Charts and diagrams in your coding agent
 
@@ -424,6 +429,16 @@ There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays up
 | [`@glyphcss/diagrams`](packages/diagrams/README.md) | `@glyphcss/diagrams` | Mermaid and graph diagrams, sequences, and branching histories rendered as text. |
 | [`@glyphcss/maps`](packages/maps/README.md) | `@glyphcss/maps` | Geographic data → glyphcss: projections, elevation tiles, a relief mesh, and the interactive `createGlyphMap` widget with a MapLibre-shaped layer vocabulary. |
 | [`@glyphcss/fluid`](packages/fluid/README.md) | `@glyphcss/fluid` | A living braille fluid as DOM text: text, images and meshes condense out of it; `./reader` shows one word at a time out of it. |
+
+## Made with glyphcss
+
+<p align="center">
+  <a href="https://asciiquake.wtf"><img src="assets/readme/asciiquake.svg" alt="A walk through the first hall of Quake, rendered as coloured text" width="100%"></a>
+</p>
+
+> **asciiQuake**: id Software's Quake, played as text in the DOM. Every frame above is glyphcss output, replayed with CSS alone.
+>
+> [Play it at asciiquake.wtf](https://asciiquake.wtf) · [Source on GitHub](https://github.com/apresmoi/asciiQuake)
 
 ## License
 

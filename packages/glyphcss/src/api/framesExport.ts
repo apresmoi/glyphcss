@@ -137,7 +137,8 @@ function bakeTurntable(polygons: Polygon[], options: GlyphFramesExportOptions): 
     cropped = bake(zoom);
     for (let pass = 0; pass < 3 && cropped.cols > 0; pass++) {
       const scale = Math.min((cols - 2) / cropped.cols, (rows - 2) / cropped.rows);
-      if (Math.abs(scale - 1) < 0.03) break;
+      // Stop once it fits with little room to spare; never settle on an overflow.
+      if (scale >= 1 && scale < 1.03) break;
       zoom *= scale;
       cropped = bake(zoom);
     }
