@@ -287,7 +287,7 @@ Convenience ground plane — a horizontal `planePolygons` registered as a mesh.
 | `GlyphMapControls` | Pan-first map-style input |
 | `GlyphFirstPersonControls` | Keyboard and pointer-look navigation |
 
-`GlyphOrbitControls` and `GlyphMapControls` accept `drag`, `wheel`, `invert`, and `animate`; orbit also accepts `pitchRange` (turntable-mode pitch clamp, `null` for unrestricted tumbling) and `mode` (`"turntable"` default, or `"trackball"` for free rotation including roll).
+`GlyphOrbitControls` and `GlyphMapControls` accept `drag`, `wheel`, `invert`, and `animate`; orbit also accepts `pitchRange` (turntable-mode pitch clamp, `null` for unrestricted tumbling) and `mode` (`"turntable"` default, or `"trackball"` for free rotation including roll). Both accept `compositorPan`, which slides the picture with a CSS transform during an orthographic pan instead of re-rendering every move.
 
 ### Hotspots
 

@@ -786,6 +786,8 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
       drag: controlState.dragEnabled,
       wheel: controlState.wheelEnabled,
       invert: controlState.invertDrag ? -1 : 1,
+      // An orthographic pan slides the last render; falls back by itself elsewhere.
+      compositorPan: true,
     };
 
     if (controlState.dragMode === "pan") {
