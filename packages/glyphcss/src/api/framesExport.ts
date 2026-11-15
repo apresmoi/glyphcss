@@ -11,6 +11,9 @@
  * ahead of time. Each frame is a full `compileScene` render, so colors are
  * faithful (per-face baked for textured meshes). Trade-offs: discrete angles
  * (smoothness ∝ frameCount), fixed resolution, and payload = frameCount × frame.
+ *
+ * Give geometry per frame (`GlyphFramesSource` as a function) for any other
+ * loop: the camera then stays put and the light stays in the world.
  */
 import type { Polygon, RenderMode, Vec3 } from "@glyphcss/core";
 import { recenterPolygons } from "@glyphcss/core";
@@ -18,6 +21,14 @@ import { compileScene } from "./compileScene";
 import type { GlyphAmbientLight, GlyphDirectionalLight, GlyphShadowOptions } from "./types";
 import { createGlyphPerspectiveCamera, createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { encodeStaticGlyphHtml, cropGlyphFrames } from "./staticEncode";
+
+/**
+ * What the frames show. A polygon list is orbited by the camera over one full
+ * turn. A function returns the geometry of each frame instead, under a camera
+ * and lights that do not move, so a model can turn on any axis (or change
+ * shape) and its shading and shadows sweep across it.
+ */
+export type GlyphFramesSource = Polygon[] | ((frame: number, frameCount: number) => Polygon[]);
 
 export interface GlyphFramesExportOptions {
   /** Number of turntable frames over 360°. Default 36 (10° steps). */
@@ -33,6 +44,9 @@ export interface GlyphFramesExportOptions {
   rows?: number;
   cellAspect?: number;
   mode?: RenderMode;
+  /** As in `compileScene`. Solid `"halfblock"` / `"quadrant"` cells carry a background colour and are rejected. */
+  charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
+  hiddenLines?: "show" | "hide";
   glyphPalette?: string;
   useColors?: boolean;
   autoCenter?: boolean;
@@ -45,10 +59,10 @@ export interface GlyphFramesExportOptions {
   /** Rendered line-height in px (for exact frame height). Default = fontSizePx. */
   lineHeightPx?: number;
   fontSizePx?: number;
-  /** Lighting, as in `compileScene`. The camera orbits, so light stays fixed to the model. */
+  /** Lighting, as in `compileScene`. Under an orbiting camera the light stays fixed to the model. */
   directionalLight?: GlyphDirectionalLight;
   ambientLight?: GlyphAmbientLight;
-  /** Makes the model cast shadows onto itself. They turn with the model, like the light. */
+  /** Makes the model cast shadows onto itself. */
   shadow?: GlyphShadowOptions;
   /**
    * `"roll"` (default): every frame in one tall `<pre>`, slid one frame per
@@ -94,29 +108,41 @@ interface Turntable {
   css: string;
 }
 
-function bakeTurntable(polygons: Polygon[], options: GlyphFramesExportOptions): Turntable {
+function bakeTurntable(source: GlyphFramesSource, options: GlyphFramesExportOptions): Turntable {
   const N = Math.max(2, Math.floor(options.frameCount ?? 36));
   const cols = options.cols ?? 80;
   const rows = options.rows ?? 24;
   const fsPx = options.fontSizePx ?? 13;
-  const centered = options.autoCenter ? recenterPolygons(polygons) : polygons;
+  const solid = options.mode === undefined || options.mode === "solid";
+  if (solid && (options.charMode === "halfblock" || options.charMode === "quadrant")) {
+    // Those cells pair a foreground with a background colour, which the shared colour classes cannot hold.
+    throw new Error(`glyphcss: a frames export cannot encode solid charMode "${options.charMode}"`);
+  }
   const ortho = options.projection === "orthographic";
   const baseRotY = options.rotY ?? 45;
+  const orbit = typeof source !== "function";
+  const fixed = orbit ? (options.autoCenter ? recenterPolygons(source) : source) : null;
+  const frame = (i: number): Polygon[] => {
+    if (fixed) return fixed;
+    const polygons = (source as Exclude<GlyphFramesSource, Polygon[]>)(i, N);
+    return options.autoCenter ? recenterPolygons(polygons) : polygons;
+  };
   // A flat polygon list neither casts nor receives a shadow; only an object mesh opts in.
-  const model = options.shadow
-    ? { polygons: [], objects: [{ id: "model", bounds: polygonBounds(centered), meshes: [{ name: "model", polygons: centered, options: { castShadow: true, receiveShadow: true } }] }] }
-    : { polygons: centered };
+  const model = (polygons: Polygon[]) => options.shadow
+    ? { polygons: [], objects: [{ id: "model", bounds: polygonBounds(polygons), meshes: [{ name: "model", polygons, options: { castShadow: true, receiveShadow: true } }] }] }
+    : { polygons };
 
   const bake = (zoom: number | undefined): ReturnType<typeof cropGlyphFrames> => {
     const frameInners: string[] = [];
     for (let i = 0; i < N; i++) {
-      const rotY = baseRotY + (i * 360) / N;
+      const rotY = orbit ? baseRotY + (i * 360) / N : baseRotY;
       const camera = ortho
         ? createGlyphOrthographicCamera({ rotX: options.rotX, rotY, zoom })
         : createGlyphPerspectiveCamera({ rotX: options.rotX, rotY, zoom, perspective: options.perspectivePx });
       const { inner } = compileScene({
-        ...model, camera, cols, rows,
+        ...model(frame(i)), camera, cols, rows,
         cellAspect: options.cellAspect, mode: options.mode,
+        charMode: options.charMode, hiddenLines: options.hiddenLines,
         glyphPalette: options.glyphPalette, useColors: options.useColors,
         directionalLight: options.directionalLight, ambientLight: options.ambientLight, shadow: options.shadow,
       });
@@ -132,7 +158,7 @@ function bakeTurntable(polygons: Polygon[], options: GlyphFramesExportOptions): 
     // The crop box is the union of every frame's ink, so its size against the
     // grid gives the zoom correction directly. Perspective is not linear in
     // zoom and a clipped model under-reports its size, hence the passes.
-    const { min, max } = polygonBounds(centered);
+    const { min, max } = polygonBounds(frame(0));
     let zoom = options.zoom ?? 200 / Math.max(max[0] - min[0], max[1] - min[1], max[2] - min[2], 1e-9);
     cropped = bake(zoom);
     for (let pass = 0; pass < 3 && cropped.cols > 0; pass++) {
@@ -162,10 +188,10 @@ function splitFrames(t: Turntable, open: (i: number, tag: string) => string): st
 }
 
 export function buildGlyphFramesExport(
-  polygons: Polygon[],
+  source: GlyphFramesSource,
   options: GlyphFramesExportOptions = {},
 ): GlyphFramesExportResult {
-  const t = bakeTurntable(polygons, options);
+  const t = bakeTurntable(source, options);
   const N = t.frameCount;
   const frameH = t.rows * t.lineHeightPx;
   const page = "html,body{margin:0;height:100%;background:#0b0d10;display:grid;place-items:center}";
@@ -206,12 +232,12 @@ ${t.css}`;
  * the font's advance), not `compileScene`'s 2:1.
  */
 export function buildGlyphFramesSvgExport(
-  polygons: Polygon[],
+  source: GlyphFramesSource,
   options: GlyphFramesSvgExportOptions = {},
 ): GlyphFramesSvgExportResult {
   const fsPx = options.fontSizePx ?? 13;
   const lhPx = options.lineHeightPx ?? fsPx;
-  const t = bakeTurntable(polygons, { ...options, cellAspect: options.cellAspect ?? lhPx / (fsPx * 0.6) });
+  const t = bakeTurntable(source, { ...options, cellAspect: options.cellAspect ?? lhPx / (fsPx * 0.6) });
   const N = t.frameCount;
   const width = Math.ceil(t.cols * fsPx * SVG_ADVANCE);
   const height = t.rows * lhPx;

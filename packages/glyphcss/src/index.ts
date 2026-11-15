@@ -147,6 +147,7 @@ export { buildGlyphFramesExport, buildGlyphFramesSvgExport } from "./api/framesE
 export type {
   GlyphFramesExportOptions,
   GlyphFramesExportResult,
+  GlyphFramesSource,
   GlyphFramesSvgExportOptions,
   GlyphFramesSvgExportResult,
 } from "./api/framesExport";

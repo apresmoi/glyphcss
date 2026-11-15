@@ -156,3 +156,59 @@ describe("buildGlyphFramesExport fit", () => {
     }
   });
 });
+
+describe("buildGlyphFramesExport per-frame geometry", () => {
+  const cube = cubePolygons({ center: [0, 0, 0], size: 1 });
+  const base = { frameCount: 4, cols: 40, rows: 20, zoom: 300, rotY: 30, autoCenter: true } as const;
+  const spinZ = (i: number, n: number): Polygon[] => {
+    const a = (i * 2 * Math.PI) / n;
+    return cube.map((p) => ({ ...p, vertices: p.vertices.map(([x, y, z]): Vec3 => [Math.cos(a) * x - Math.sin(a) * y, Math.sin(a) * x + Math.cos(a) * y, z]) }));
+  };
+  const ink = (html: string): string => html.replace(/<[^>]+>/g, "").replace(/\S/g, "#");
+
+  it("asks for every frame once per bake and keeps the camera still", () => {
+    const calls: number[][] = [];
+    const still = buildGlyphFramesExport((i, n) => (calls.push([i, n]), cube), base);
+    expect(calls).toEqual([[0, 4], [1, 4], [2, 4], [3, 4]]);
+    // Same geometry under a still camera: four identical frames.
+    const lines = still.html.replace(/^[\s\S]*?<pre[^>]*>/, "").replace(/<\/pre>[\s\S]*$/, "").split("\n");
+    const rows = lines.length / 4;
+    for (let f = 1; f < 4; f++) expect(lines.slice(f * rows, (f + 1) * rows)).toEqual(lines.slice(0, rows));
+  });
+
+  it("a model turned about z draws the silhouette of the orbit, the other way round", () => {
+    const orbit = buildGlyphFramesExport(cube, { ...base, frameCount: 8 });
+    const turned = buildGlyphFramesExport((i, n) => spinZ(n - i, n), { ...base, frameCount: 8 });
+    expect(ink(turned.html)).toBe(ink(orbit.html));
+  });
+
+  it("keeps the light in the world: quarter turns of a cube look alike, where the orbit's frames differ", () => {
+    const light = { directionalLight: { direction: [1, 0, 0.3] as Vec3, intensity: 1 }, ambientLight: { intensity: 0.2 } };
+    const frames = (html: string): string[] => {
+      const lines = html.replace(/^[\s\S]*?<pre[^>]*>/, "").replace(/<\/pre>[\s\S]*$/, "").split("\n");
+      return Array.from({ length: 4 }, (_, f) => lines.slice((f * lines.length) / 4, ((f + 1) * lines.length) / 4).join("\n"));
+    };
+    const turned = frames(buildGlyphFramesExport((i, n) => spinZ(i, n), { ...base, ...light }).html);
+    expect(new Set(turned).size).toBe(1);
+    // The orbit carries the light round with the model, so each view is lit from another side.
+    expect(new Set(frames(buildGlyphFramesExport(cube, { ...base, ...light }).html)).size).toBeGreaterThan(1);
+  });
+});
+
+describe("buildGlyphFramesExport character modes", () => {
+  const cube = cubePolygons({ center: [0, 0, 0], size: 1 });
+  const base = { frameCount: 3, cols: 30, rows: 16, zoom: 300, autoCenter: true } as const;
+
+  it("passes charMode and hiddenLines to every frame", () => {
+    const wire = { ...base, mode: "wireframe" } as const;
+    expect(buildGlyphFramesExport(cube, { ...wire, charMode: "braille" }).html).toMatch(/[\u2800-\u28ff]/);
+    expect(buildGlyphFramesExport(cube, wire).html).not.toMatch(/[\u2800-\u28ff]/);
+    expect(buildGlyphFramesExport(cube, { ...wire, hiddenLines: "hide" }).html).not.toBe(buildGlyphFramesExport(cube, wire).html);
+  });
+
+  it("rejects the solid modes whose cells carry a background colour", () => {
+    expect(() => buildGlyphFramesExport(cube, { ...base, charMode: "halfblock" })).toThrow(/cannot encode solid charMode "halfblock"/);
+    expect(() => buildGlyphFramesSvgExport(cube, { ...base, charMode: "quadrant" })).toThrow(/cannot encode solid charMode "quadrant"/);
+    expect(() => buildGlyphFramesExport(cube, { ...base, mode: "wireframe", charMode: "halfblock" })).not.toThrow();
+  });
+});
